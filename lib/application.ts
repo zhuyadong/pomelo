@@ -4,6 +4,7 @@ import path = require("path");
 import fs = require("fs");
 import { FILEPATH, KEYWORDS, RESERVED } from "./util/constants";
 import { EventEmitter } from "events";
+import { Session } from "./common/service/sessionService";
 const Logger = require("pomelo-logger");
 const logger = require("pomelo-logger").getLogger("pomelo", __filename);
 
@@ -36,6 +37,14 @@ export interface RPCInvokeFunc {
   (sid: number, msg: any, cb?: Function): void;
 }
 
+export interface Filter {
+  before(msg: any, session: Session, next: Function): void;
+  after(err: any, msg: any, session: Session, next: Function): void;
+}
+export interface RPCFilter {
+  before(serverId: string, msg: any, opts: any, next: Function): void;
+  after(serverId: string, msg: any, opts: any, next: Function): void;
+}
 interface AppComponents {
   __server__: ServerInfo;
 }
@@ -181,8 +190,110 @@ export class Application {
     }
   }
 
-  filter(filter:Filter) {
+  filter(filter: Filter) {}
 
+  before(bf: Filter) {}
+
+  after(af: Filter) {}
+
+  globalFilter(filter: Filter) {}
+
+  globalBefore(bf: Filter) {}
+
+  globalAfter(af: Filter) {}
+
+  rpcBefore(bf: RPCFilter) {}
+
+  rpcAfter(af: RPCFilter) {}
+
+  rpcFilter(filter: RPCFilter) {}
+
+  load(name: string, component: {}, opts?: {}) {}
+
+  loadConfigBaseApp(key: string, val: string, reload: boolean = false) {
+    let env = this.get(RESERVED.ENV);
+    let originPath = path.join(this.base, val);
+    let presentPath = path.join(
+      this.base,
+      FILEPATH.CONFIG_DIR,
+      env,
+      path.basename(val)
+    );
+    let realPath: string | undefined;
+    if (fs.existsSync(originPath)) {
+      realPath = originPath;
+      let file = require(originPath);
+      if (file[env]) {
+        file = file[env];
+      }
+      this.set(key, file);
+    } else if (fs.existsSync(presentPath)) {
+      realPath = presentPath;
+      let pfile = require(presentPath);
+      this.set(key, pfile);
+    } else {
+      logger.error("invalid configuration with file path: %s", key);
+    }
+
+    if (!!realPath && !!reload) {
+      fs.watch(realPath, (event, filename) => {
+        if (event === "change") {
+          delete require.cache[require.resolve(realPath!)];
+          this.loadConfigBaseApp(key, val);
+        }
+      });
+    }
+  }
+
+  loadConfig(key: string, val: string) {
+    let env = this.get(RESERVED.ENV);
+    let mod = require(val);
+    if (mod[env]) {
+      mod = mod[env];
+    }
+    this.set(key, mod);
+  }
+
+  route(serverType: string, routeFunc: Function) {
+    let routes = this.get(KEYWORDS.ROUTE);
+    if (!routes) {
+      routes = {};
+      this.set(KEYWORDS.ROUTE, routes);
+    }
+    routes[serverType] = routeFunc;
+    return this;
+  }
+
+  start(cb?: Function) {
+    this._startTime = Date.now();
+    if (this._state > State.STATE_INITED) {
+      utils.invokeCallback(cb!, new Error("application has already start."));
+      return;
+    }
+
+    var self = this;
+    this.startByType(self, function() {
+      appUtil.loadDefaultComponents(self);
+      var startUp = function() {
+        appUtil.optComponents(self.loaded, Constants.RESERVED.START, function(
+          err
+        ) {
+          self.state = STATE_START;
+          if (err) {
+            utils.invokeCallback(cb, err);
+          } else {
+            logger.info("%j enter after start...", self.getServerId());
+            self.afterStart(cb);
+          }
+        });
+      };
+      var beforeFun = self.lifecycleCbs[Constants.LIFECYCLE.BEFORE_STARTUP];
+      if (!!beforeFun) {
+        beforeFun.call(null, self, startUp);
+      } else {
+        startUp();
+      }
+    });
   }
   get(key: "rpcInvoke"): RPCInvokeFunc;
   get(key: "master"): ServerInfo;
@@ -351,38 +462,23 @@ export class Application {
     }
   }
 
-  loadConfigBaseApp(key: string, val: string, reload: boolean = false) {
-    let env = this.get(RESERVED.ENV);
-    let originPath = path.join(this.base, val);
-    let presentPath = path.join(
-      this.base,
-      FILEPATH.CONFIG_DIR,
-      env,
-      path.basename(val)
-    );
-    let realPath: string | undefined;
-    if (fs.existsSync(originPath)) {
-      realPath = originPath;
-      let file = require(originPath);
-      if (file[env]) {
-        file = file[env];
+  startByType(cb?: Function) {
+    if (!!this.startId) {
+      if (this.startId === RESERVED.MASTER) {
+        invokeCallback(cb);
+      } else {
+        starter.runServers(app);
       }
-      this.set(key, file);
-    } else if (fs.existsSync(presentPath)) {
-      realPath = presentPath;
-      let pfile = require(presentPath);
-      this.set(key, pfile);
     } else {
-      logger.error("invalid configuration with file path: %s", key);
-    }
-
-    if (!!realPath && !!reload) {
-      fs.watch(realPath, (event, filename) => {
-        if (event === "change") {
-          delete require.cache[require.resolve(realPath!)];
-          this.loadConfigBaseApp(key, val);
-        }
-      });
+      if (
+        !!app.type &&
+        app.type !== Constants.RESERVED.ALL &&
+        app.type !== Constants.RESERVED.MASTER
+      ) {
+        starter.runServers(app);
+      } else {
+        utils.invokeCallback(cb);
+      }
     }
   }
 }

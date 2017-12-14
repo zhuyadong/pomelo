@@ -1,7 +1,7 @@
 import { isObject } from "util";
 import { EventEmitter } from "events";
 import { ISocket, Settings } from "../../index";
-import { invokeCallback } from "../../util/utils";
+import { invokeCallback, size } from "../../util/utils";
 
 const logger = require("pomelo-logger").getLogger("pomelo", __filename);
 
@@ -119,7 +119,48 @@ export class FrontendSession extends Session {
     this._settings = dclone(_session.settings);
   }
 
-  bind(uid: string, cb?: Function) {}
+  bind(uid: string, cb?: Function) {
+    this._sessionService.bind(this.id, uid, (err: any) => {
+      if (!err) {
+        this._uid = uid;
+      }
+      invokeCallback(cb!, err);
+    });
+  }
+
+  unbind(uid: string, cb?: Function) {
+    this._sessionService.unbind(this.id, uid, (err: any) => {
+      if (!err) {
+        delete this._uid;
+      }
+      invokeCallback(cb!, err);
+    });
+  }
+
+  push(key: any, cb?: Function) {
+    this._sessionService.import(this.id, key, this.get(key), cb);
+  }
+
+  pushAll(cb?: Function) {
+    this._sessionService.importAll(this.id, this._settings, cb);
+  }
+
+  on(event: string | symbol, listener: (...args: any[]) => void) {
+    EventEmitter.prototype.on.call(this, event, listener);
+    this._session.on(event, listener);
+    return this;
+  }
+
+  export() {
+    let res: {
+      id: number;
+      frontendId: string;
+      uid: string;
+      settings: Settings;
+    } = <any>{};
+    clone(this, res, EXPORTED_SESSION_FIELDS);
+    return res;
+  }
 }
 
 export class SessionService {
@@ -250,7 +291,7 @@ export class SessionService {
     return this._sessions[sid];
   }
 
-  getByUid(uid: string): Readonly<Session[]> {
+  getByUid(uid: string) {
     return this._uidMap[uid];
   }
 
@@ -277,35 +318,35 @@ export class SessionService {
     }
   }
 
-  import(sid: number, key: any, value: any, cb: Function) {
+  import(sid: number, key: any, value: any, cb?: Function) {
     const session = this.sessions[sid];
     if (!session) {
-      invokeCallback(cb, new Error("session does not exist, sid: " + sid));
+      invokeCallback(cb!, new Error("session does not exist, sid: " + sid));
       return;
     }
     session.set(key, value);
-    invokeCallback(cb);
+    invokeCallback(cb!);
   }
 
-  importAll(sid: number, settings: Settings, cb: Function) {
+  importAll(sid: number, settings: Settings, cb?: Function) {
     let session = this.sessions[sid];
     if (!session) {
-      invokeCallback(cb, new Error("session does not exist, sid: " + sid));
+      invokeCallback(cb!, new Error("session does not exist, sid: " + sid));
       return;
     }
 
     for (let f in settings) {
       session.set(f, settings[f]);
     }
-    invokeCallback(cb);
+    invokeCallback(cb!);
   }
 
-  kick(uid: string, reason: any, cb: Function) {
+  kick(uid: string, reason: any, cb?: Function) {
     if (typeof reason === "function") {
       cb = reason;
       reason = "kick";
     }
-    var sessions = this.getByUid(uid);
+    let sessions = this.getByUid(uid);
 
     if (sessions) {
       // notify client
@@ -319,13 +360,98 @@ export class SessionService {
       });
 
       process.nextTick(() => {
-        invokeCallback(cb);
+        invokeCallback(cb!);
       });
     } else {
       process.nextTick(() => {
-        invokeCallback(cb);
+        invokeCallback(cb!);
       });
     }
+  }
+
+  kickBySessionId(sid: number, reason: any, cb?: Function) {
+    if (typeof reason === "function") {
+      cb = reason;
+      reason = "kick";
+    }
+
+    let session = this.get(sid);
+
+    if (session) {
+      // notify client
+      session.closed(reason);
+      process.nextTick(function() {
+        invokeCallback(cb!);
+      });
+    } else {
+      process.nextTick(function() {
+        invokeCallback(cb!);
+      });
+    }
+  }
+
+  getClientAddressBySessionId(sid: number) {
+    let session = this.get(sid);
+    if (session) {
+      let socket = session.socket;
+      return socket.remoteAddress;
+    } else {
+      return null;
+    }
+  }
+
+  sendMessage(sid: number, msg: any) {
+    let session = this.get(sid);
+
+    if (!session) {
+      logger.debug(
+        "Fail to send message for non-existing session, sid: " +
+          sid +
+          " msg: " +
+          msg
+      );
+      return false;
+    }
+
+    session.send(msg);
+    return true;
+  }
+
+  sendMessageByUid(uid: string, msg: any) {
+    let sessions = this.getByUid(uid);
+
+    if (!sessions) {
+      logger.debug(
+        "fail to send message by uid for non-existing session. uid: %j",
+        uid
+      );
+      return false;
+    }
+
+    for (let i = 0, l = sessions.length; i < l; i++) {
+      sessions[i].send(msg);
+    }
+
+    return true;
+  }
+
+  forEachSession(cb: Function) {
+    for (let sid in this.sessions) {
+      cb(this.sessions[sid]);
+    }
+  }
+
+  forEachBindedSession(cb: Function) {
+    for (let uid in this.uidMap) {
+      let sessions = this.uidMap[uid];
+      for (let i = 0, l = sessions.length; i < l; i++) {
+        cb(sessions[i]);
+      }
+    }
+  }
+
+  getSessionCount() {
+    return size(this.sessions);
   }
 }
 
