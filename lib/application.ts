@@ -77,7 +77,8 @@ export interface Component {
 
 interface AppComponents {
   __backendSession__: BackendSessionService;
-  __server__: ServerInfo;
+  __server__: Component;
+  [idx:string]:Component;
 }
 
 export class Application {
@@ -268,7 +269,7 @@ export class Application {
     this.rpcAfter(filter);
   }
 
-  load(name: string, component: {}, opts?: {}) {
+  load(name: string, component: Component, opts?: {}) {
     if (typeof name !== "string") {
       opts = component;
       component = name;
@@ -292,10 +293,10 @@ export class Application {
       return;
     }
 
-    this.loaded.push(component);
+    this._loaded.push(component);
     if (name) {
       // components with a name would get by name throught app.components later.
-      this.components[name] = component;
+      this._components[name] = component;
     }
 
     return this;
