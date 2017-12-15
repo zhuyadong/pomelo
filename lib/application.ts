@@ -1,10 +1,13 @@
-import * as process from "process";
-import utils = require("./util/utils");
+import { BackendSessionService } from "./common/service/backendSessionService";
+import process = require("process");
 import path = require("path");
 import fs = require("fs");
-import { FILEPATH, KEYWORDS, RESERVED } from "./util/constants";
+import { FILEPATH, KEYWORDS, RESERVED, LIFECYCLE } from "./util/constants";
 import { EventEmitter } from "events";
 import { Session } from "./common/service/sessionService";
+import { events } from "./pomelo";
+import { invokeCallback } from "./util/utils";
+import { runServers } from "./master/starter";
 const Logger = require("pomelo-logger");
 const logger = require("pomelo-logger").getLogger("pomelo", __filename);
 
@@ -23,6 +26,7 @@ export interface ServerInfo {
   frontend?: boolean | string;
   clientHost?: string;
   clientPort?: number;
+  cpu?: number;
   [idx: string]: any;
 }
 
@@ -32,20 +36,47 @@ export type ClusterSeqMap = { [idx: string]: number };
 export type LifecycleCbs = { [idx: string]: Function };
 export type Settings = { [idx: string]: any };
 export type ArgsMap = { [idx: string]: string | number };
+export type CallbackMap = { [idx: string]: (cb: Function) => void };
 
 export interface RPCInvokeFunc {
-  (sid: number, msg: any, cb?: Function): void;
+  (serverId: string, msg: any, cb?: Function): void;
 }
+
+export type BeforeFilterFunc = (
+  msg: any,
+  session: Session,
+  next: Function
+) => void;
+export type AfterFilterFunc = (
+  err: any,
+  msg: any,
+  session: Session,
+  resp: any,
+  next: Function
+) => void;
 
 export interface Filter {
   before(msg: any, session: Session, next: Function): void;
-  after(err: any, msg: any, session: Session, next: Function): void;
+  after(err: any, msg: any, session: Session, resp:any, next: Function): void;
 }
 export interface RPCFilter {
   before(serverId: string, msg: any, opts: any, next: Function): void;
   after(serverId: string, msg: any, opts: any, next: Function): void;
 }
+
+export interface Cron {
+  id: number;
+  time: string;
+  action: string;
+}
+
+export interface Component {
+  readonly name: string;
+  readonly app?: Application;
+}
+
 interface AppComponents {
+  __backendSession__: BackendSessionService;
   __server__: ServerInfo;
 }
 
@@ -133,6 +164,14 @@ export class Application {
     return this.get(RESERVED.STARTID);
   }
 
+  get serversFromConfig(): ServerInfoMap {
+    return this.get(KEYWORDS.SERVER_MAP);
+  }
+
+  get backendSessionService() {
+    return this.get("backendSessionService");
+  }
+
   private static _instance: Application;
   static get instance(): Application {
     if (!Application._instance) {
@@ -158,7 +197,7 @@ export class Application {
 
   init(opts?: any) {
     opts = opts || {};
-    var base = opts.base || path.dirname(require.main!.filename);
+    let base = opts.base || path.dirname(require.main!.filename);
     this.set(RESERVED.BASE, base);
     this.defaultConfiguration();
     this._state = State.STATE_INITED;
@@ -190,25 +229,77 @@ export class Application {
     }
   }
 
-  filter(filter: Filter) {}
+  filter(filter: Filter) {
+    this.before(filter);
+    this.after(filter);
+  }
 
-  before(bf: Filter) {}
+  before(bf: Filter) {
+    addFilter(this, KEYWORDS.BEFORE_FILTER, bf);
+  }
 
-  after(af: Filter) {}
+  after(af: Filter) {
+    addFilter(this, KEYWORDS.AFTER_FILTER, af);
+  }
 
-  globalFilter(filter: Filter) {}
+  globalFilter(filter: Filter) {
+    this.globalBefore(filter);
+    this.globalAfter(filter);
+  }
 
-  globalBefore(bf: Filter) {}
+  globalBefore(bf: Filter) {
+    addFilter(this, KEYWORDS.GLOBAL_BEFORE_FILTER, bf);
+  }
 
-  globalAfter(af: Filter) {}
+  globalAfter(af: Filter) {
+    addFilter(this, KEYWORDS.GLOBAL_AFTER_FILTER, af);
+  }
 
-  rpcBefore(bf: RPCFilter) {}
+  rpcBefore(bf: RPCFilter) {
+    addFilter(this, KEYWORDS.RPC_BEFORE_FILTER, bf);
+  }
 
-  rpcAfter(af: RPCFilter) {}
+  rpcAfter(af: RPCFilter) {
+    addFilter(this, KEYWORDS.RPC_AFTER_FILTER, af);
+  }
 
-  rpcFilter(filter: RPCFilter) {}
+  rpcFilter(filter: RPCFilter) {
+    this.rpcBefore(filter);
+    this.rpcAfter(filter);
+  }
 
-  load(name: string, component: {}, opts?: {}) {}
+  load(name: string, component: {}, opts?: {}) {
+    if (typeof name !== "string") {
+      opts = component;
+      component = name;
+      name = <any>null;
+      if (typeof component.name === "string") {
+        name = component.name;
+      }
+    }
+
+    if (typeof component === "function") {
+      component = component(this, opts);
+    }
+
+    if (!name && typeof component.name === "string") {
+      name = component.name;
+    }
+
+    if (name && this.components[name]) {
+      // ignore duplicat component
+      logger.warn("ignore duplicate component: %j", name);
+      return;
+    }
+
+    this.loaded.push(component);
+    if (name) {
+      // components with a name would get by name throught app.components later.
+      this.components[name] = component;
+    }
+
+    return this;
+  }
 
   loadConfigBaseApp(key: string, val: string, reload: boolean = false) {
     let env = this.get(RESERVED.ENV);
@@ -267,34 +358,41 @@ export class Application {
   start(cb?: Function) {
     this._startTime = Date.now();
     if (this._state > State.STATE_INITED) {
-      utils.invokeCallback(cb!, new Error("application has already start."));
+      invokeCallback(cb!, new Error("application has already start."));
       return;
     }
 
-    var self = this;
-    this.startByType(self, function() {
-      appUtil.loadDefaultComponents(self);
-      var startUp = function() {
-        appUtil.optComponents(self.loaded, Constants.RESERVED.START, function(
-          err
-        ) {
-          self.state = STATE_START;
+    this.startByType(() => {
+      this.loadDefaultComponents();
+      let startUp = () => {
+        this.optComponents(this._loaded, RESERVED.START, (err: any) => {
+          this._state = State.STATE_START;
           if (err) {
-            utils.invokeCallback(cb, err);
+            invokeCallback(cb!, err);
           } else {
-            logger.info("%j enter after start...", self.getServerId());
-            self.afterStart(cb);
+            logger.info("%j enter after start...", this.serverId);
+            this.afterStart(cb!);
           }
         });
       };
-      var beforeFun = self.lifecycleCbs[Constants.LIFECYCLE.BEFORE_STARTUP];
+      let beforeFun = this.lifecycleCbs[LIFECYCLE.BEFORE_STARTUP];
       if (!!beforeFun) {
-        beforeFun.call(null, self, startUp);
+        beforeFun.call(null, this, startUp);
       } else {
         startUp();
       }
     });
   }
+
+  afterStart(cb: Function) {}
+
+  stop(force?: boolean) {}
+
+  set(setting: string, val: any) {
+    this._settings[setting] = val;
+    return this;
+  }
+
   get(key: "rpcInvoke"): RPCInvokeFunc;
   get(key: "master"): ServerInfo;
   get(key: "base"): string;
@@ -306,6 +404,7 @@ export class Application {
   get(key: "serverId"): string;
   get(key: "startId"): string;
   get(key: "servers"): ServerInfoArrayMap;
+  get(key: "backendSessionService"): BackendSessionService;
   get(key: string): any;
   /* 如果要给Applicatoin.get加上新的key，可以在需要的地方如下这样merge进入Application:
   import 'path_to/application'
@@ -318,8 +417,149 @@ export class Application {
   get(setting: string): any {
     return this._settings.get(setting);
   }
-  set(setting: string, val: any) {
-    this._settings.set(setting, val);
+
+  enabled(setting: string) {
+    return !!this.get(setting);
+  }
+
+  disabled(setting: string) {
+    return !this.get(setting);
+  }
+
+  enable(setting: string) {
+    return this.set(setting, true);
+  }
+
+  disable(setting: string) {
+    return this.set(setting, false);
+  }
+
+  configure(env: string, type: string, fn: Function) {}
+
+  registerAdmin(moduleId: string, module: any, opts: any) {}
+
+  use(plugin: any, opts?: any) {}
+
+  transaction(
+    name: string,
+    conditions: CallbackMap,
+    handlers: CallbackMap,
+    retry: number
+  ) {}
+
+  getServerById(serverId: string) {
+    return this._servers[serverId];
+  }
+
+  getServerFromConfig(serverId: string) {
+    return this.serversFromConfig[serverId];
+  }
+
+  getServersByType(serverType: string) {
+    return this._serverTypeMaps[serverType];
+  }
+
+  isFrontend(server?: ServerInfo) {
+    server = server || this.curServer;
+    return !!server && server.frontend === "true";
+  }
+
+  isBackend(server?: ServerInfo) {
+    server = server || this.curServer;
+    return !!server && !server.frontend;
+  }
+
+  isMaster() {
+    return this.serverType === RESERVED.MASTER;
+  }
+
+  addServers(servers: ServerInfo[]) {
+    if (!servers || !servers.length) {
+      return;
+    }
+
+    for (let i = 0, l = servers.length; i < l; i++) {
+      let item = servers[i];
+      // update global server map
+      this._servers[item.id] = item;
+
+      // update global server type map
+      let slist = this._serverTypeMaps[item.serverType];
+      if (!slist) {
+        this._serverTypeMaps[item.serverType] = slist = [];
+      }
+      replaceServer(slist, item);
+
+      // update global server type list
+      if (this.serverTypes.indexOf(item.serverType) < 0) {
+        this.serverTypes.push(item.serverType);
+      }
+    }
+    this.event.emit(events.ADD_SERVERS, servers);
+  }
+
+  removeServers(ids: string[]) {
+    if (!ids || !ids.length) {
+      return;
+    }
+
+    for (let i = 0, l = ids.length; i < l; i++) {
+      let id = ids[i];
+      let item = this.servers[id];
+      if (!item) {
+        continue;
+      }
+      // clean global server map
+      delete this._servers[id];
+
+      // clean global server type map
+      let slist = this._serverTypeMaps[item.serverType];
+      removeServer(slist, id);
+      // TODO: should remove the server type if the slist is empty?
+    }
+    this.event.emit(events.REMOVE_SERVERS, ids);
+  }
+
+  replaceServers(servers: ServerInfoMap) {
+    if (!servers) {
+      return;
+    }
+
+    this._servers = servers;
+    this._serverTypeMaps = {};
+    this._serverTypes = [];
+    let serverArray = [];
+    for (let id in servers) {
+      let server = servers[id];
+      let serverType = server[RESERVED.SERVER_TYPE];
+      let slist = this._serverTypeMaps[serverType];
+      if (!slist) {
+        this._serverTypeMaps[serverType] = slist = [];
+      }
+      this._serverTypeMaps[serverType].push(server);
+      // update global server type list
+      if (this._serverTypes.indexOf(serverType) < 0) {
+        this._serverTypes.push(serverType);
+      }
+      serverArray.push(server);
+    }
+    this.event.emit(events.REPLACE_SERVERS, serverArray);
+  }
+
+  addCrons(crons: Cron[]) {
+    if (!crons || !crons.length) {
+      logger.warn("crons is not defined.");
+      return;
+    }
+    this.event.emit(events.ADD_CRONS, crons);
+  }
+
+  removeCrons(crons: Cron[]) {
+    if (!crons || !crons.length) {
+      logger.warn("ids is not defined.");
+      return;
+    }
+    this.event.emit(events.REMOVE_CRONS, crons);
   }
 
   private loadServers() {
@@ -369,9 +609,9 @@ export class Application {
 
   private configLogger() {
     if (process.env.POMELO_LOGGER !== "off") {
-      var env = this.get(RESERVED.ENV);
-      var originPath = path.join(this.base, FILEPATH.LOG);
-      var presentPath = path.join(
+      let env = this.get(RESERVED.ENV);
+      let originPath = path.join(this.base, FILEPATH.LOG);
+      let presentPath = path.join(
         this.base,
         FILEPATH.CONFIG_DIR,
         env,
@@ -388,7 +628,7 @@ export class Application {
   }
 
   private loadLifecycle() {
-    var filePath = path.join(
+    let filePath = path.join(
       this.base,
       FILEPATH.SERVER_DIR,
       this.serverType,
@@ -397,8 +637,8 @@ export class Application {
     if (!fs.existsSync(filePath)) {
       return;
     }
-    var lifecycle = require(filePath);
-    for (var key in lifecycle) {
+    let lifecycle = require(filePath);
+    for (let key in lifecycle) {
       if (typeof lifecycle[key] === "function") {
         this._lifecycleCbs[key] = lifecycle[key];
       } else {
@@ -465,21 +705,96 @@ export class Application {
   startByType(cb?: Function) {
     if (!!this.startId) {
       if (this.startId === RESERVED.MASTER) {
-        invokeCallback(cb);
+        invokeCallback(cb!);
       } else {
-        starter.runServers(app);
+        runServers(this);
       }
     } else {
       if (
-        !!app.type &&
-        app.type !== Constants.RESERVED.ALL &&
-        app.type !== Constants.RESERVED.MASTER
+        !!this.type &&
+        this.type !== RESERVED.ALL &&
+        this.type !== RESERVED.MASTER
       ) {
-        starter.runServers(app);
+        runServers(this);
       } else {
-        utils.invokeCallback(cb);
+        invokeCallback(cb!);
       }
     }
+  }
+
+  loadDefaultComponents() {
+    let pomelo = require("../pomelo");
+    // load system default components
+    if (this.serverType === RESERVED.MASTER) {
+      this.load(pomelo.master, this.get("masterConfig"));
+    } else {
+      this.load(pomelo.proxy, this.get("proxyConfig"));
+      if (this.curServer.port) {
+        this.load(pomelo.remote, this.get("remoteConfig"));
+      }
+      if (this.isFrontend()) {
+        this.load(pomelo.connection, this.get("connectionConfig"));
+        this.load(pomelo.connector, this.get("connectorConfig"));
+        this.load(pomelo.session, this.get("sessionConfig"));
+        // compatible for schedulerConfig
+        if (this.get("schedulerConfig")) {
+          this.load(pomelo.pushScheduler, this.get("schedulerConfig"));
+        } else {
+          this.load(pomelo.pushScheduler, this.get("pushSchedulerConfig"));
+        }
+      }
+      this.load(pomelo.backendSession, this.get("backendSessionConfig"));
+      this.load(pomelo.channel, this.get("channelConfig"));
+      this.load(pomelo.server, this.get("serverConfig"));
+    }
+    this.load(pomelo.monitor, this.get("monitorConfig"));
+  }
+
+  stopComps(comps: any[], index: number, force: boolean, cb?: Function) {
+    if (index >= comps.length) {
+      invokeCallback(cb!);
+      return;
+    }
+    let comp = comps[index];
+    if (typeof comp.stop === "function") {
+      comp.stop(force, () => {
+        // ignore any error
+        this.stopComps(comps, index + 1, force, cb);
+      });
+    } else {
+      this.stopComps(comps, index + 1, force, cb);
+    }
+  }
+
+  async optComponents(comps: any[], method: string, cb?: Function) {
+    async function callCompMethod(comp: any) {
+      return new Promise((c, e) => {
+        comp[method](c);
+      });
+    }
+    for (let comp of comps) {
+      if (typeof comp[method] === "function") {
+        let err: any = await callCompMethod(comp);
+        if (err) {
+          if (typeof err === "string") {
+            logger.error(
+              "fail to operate component, method: %s, err: %j",
+              method,
+              err
+            );
+          } else {
+            logger.error(
+              "fail to operate component, method: %s, err: %j",
+              method,
+              err.stack
+            );
+          }
+          invokeCallback(cb!, err);
+          return;
+        }
+      }
+    }
+    invokeCallback(cb!);
   }
 }
 
@@ -504,4 +819,63 @@ function parseArgs(args: string[]) {
   }
 
   return argsMap;
+}
+
+function replaceServer(slist: ServerInfo[], serverInfo: ServerInfo) {
+  for (let i = 0, l = slist.length; i < l; i++) {
+    if (slist[i].id === serverInfo.id) {
+      slist[i] = serverInfo;
+      return;
+    }
+  }
+  slist.push(serverInfo);
+}
+
+function removeServer(slist: ServerInfo[], id: string) {
+  if (!slist || !slist.length) {
+    return;
+  }
+
+  for (let i = 0, l = slist.length; i < l; i++) {
+    if (slist[i].id === id) {
+      slist.splice(i, 1);
+      return;
+    }
+  }
+}
+
+function contains(str: string, settings: string) {
+  if (!settings) {
+    return false;
+  }
+
+  let ts = settings.split("|");
+  for (let i = 0, l = ts.length; i < l; i++) {
+    if (str === ts[i]) {
+      return true;
+    }
+  }
+  return false;
+}
+
+interface EventConstructor<T> {
+  new (app: Application): T;
+}
+
+function bindEvents<T>(Event: EventConstructor<T>, app: Application) {
+  let emethods = new Event(app);
+  for (let m in emethods) {
+    if (typeof emethods[m] === "function") {
+      app.event.on(m, (<any>emethods[m]).bind(emethods));
+    }
+  }
+}
+
+function addFilter(app: Application, type: string, filter: Filter | RPCFilter) {
+  let filters = app.get(type);
+  if (!filters) {
+    filters = [];
+    app.set(type, filters);
+  }
+  filters.push(filter);
 }

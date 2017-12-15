@@ -380,11 +380,11 @@ export class SessionService {
     if (session) {
       // notify client
       session.closed(reason);
-      process.nextTick(function() {
+      process.nextTick(() => {
         invokeCallback(cb!);
       });
     } else {
-      process.nextTick(function() {
+      process.nextTick(() => {
         invokeCallback(cb!);
       });
     }
