@@ -4,10 +4,12 @@ import path = require("path");
 import fs = require("fs");
 import { FILEPATH, KEYWORDS, RESERVED, LIFECYCLE } from "./util/constants";
 import { EventEmitter } from "events";
-import { Session } from "./common/service/sessionService";
+import { Session } from './common/service/sessionService';
 import { events } from "./pomelo";
 import { invokeCallback } from "./util/utils";
 import { runServers } from "./master/starter";
+import { ChannelService } from "./common/service/channelService";
+import { watch } from "fs";
 const Logger = require("pomelo-logger");
 const logger = require("pomelo-logger").getLogger("pomelo", __filename);
 
@@ -74,6 +76,18 @@ export interface Component {
   readonly name: string;
   readonly app?: Application;
 }
+
+export interface Connector extends EventEmitter {
+  new (port: number, host: string, opts: object): Connector;
+  start(cb: Function): void;
+  stop(): void;
+  close?(): void;
+}
+
+export type ConnectorEncodeFunc = (reqId:number, route:string, msg:any) => any;
+export type ConnectorDecodeFunc = (msg:any, session:Session) => any;
+export type Blacklist = (RegExp|string)[];
+export type BlacklistFunc = (cb:(err:any, list:Blacklist)=>void)=>void;
 
 interface AppComponents {
   __backendSession__: BackendSessionService;
@@ -171,6 +185,10 @@ export class Application {
 
   get backendSessionService() {
     return this.get("backendSessionService");
+  }
+
+  get channelService() {
+    return this.get("channelService");
   }
 
   private static _instance: Application;
@@ -405,10 +423,12 @@ export class Application {
   get(key: "serverId"): string;
   get(key: "startId"): string;
   get(key: "servers"): ServerInfoArrayMap;
+  get(key: "channelService"): ChannelService;
   get(key: "backendSessionService"): BackendSessionService;
   get(key: string): any;
   /* 如果要给Applicatoin.get加上新的key，可以在需要的地方如下这样merge进入Application:
   import 'path_to/application'
+import { ChannelService } from './common/service/channelService';
   declare module 'path_to/application' {
     export interface Application {
       get(setting: 'mykey'):SomeType;

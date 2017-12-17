@@ -78,7 +78,7 @@ export function arrayDiff(array1: Array<any>, array2: Array<any>) {
   return result;
 }
 
-export function format(date: Date, format: string) {
+export function format(date: Date, format?: string) {
   format = format || "MMddhhmm";
   let o: { [idx: string]: number } = {
     "M+": date.getMonth() + 1, //month

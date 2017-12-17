@@ -1,137 +1,159 @@
-import fs = require('fs');
-import utils = require('../../util/utils');
-import Loader = require('pomelo-loader');
-import pathUtil = require('../../util/pathUtil');
-import { Application } from '../../application';
-const logger = require('pomelo-logger').getLogger('pomelo', __filename);
-const forwardLogger = require('pomelo-logger').getLogger('forward-log', __filename);
+import fs = require("fs");
+import utils = require("../../util/utils");
+const Loader = require("pomelo-loader");
+import pathUtil = require("../../util/pathUtil");
+import { Application } from "../../application";
+import { Session } from "./sessionService";
+const logger = require("pomelo-logger").getLogger("pomelo", __filename);
+const forwardLogger = require("pomelo-logger").getLogger(
+	"forward-log",
+	__filename
+);
+
+export type Handler = { [idx: string]: Function };
+export type Handlers = { [idx: string]: Handler };
+export type HandlersMap = { [idx: string]: Handlers };
+export interface RouteRecord {
+	serverType: string;
+	route: string;
+	handler: string;
+	method: string;
+}
 
 export class HandlerService {
-    constructor(public readonly app:Application, opts?:any) {
+	readonly name: string;
+	private handlersMap: HandlersMap;
+	private enableForwardLog: boolean;
+	constructor(public readonly app: Application, opts?: any) {
+		this.handlersMap = {};
+		if (!!opts.reloadHandlers) {
+			watchHandlers(app, this.handlersMap);
+		}
 
-    }
-  this.app = app;
-  this.handlerMap = {};
-  if(!!opts.reloadHandlers) {
-    watchHandlers(app, this.handlerMap);
-  }
+		this.enableForwardLog = opts.enableForwardLog || false;
 
-  this.enableForwardLog = opts.enableForwardLog || false;
-};
+		this.name = "handler";
+	}
 
-module.exports = Service;
+	handle(
+		routeRecord: RouteRecord,
+		msg: any,
+		session: Session,
+		cb?: Function
+	) {
+		// the request should be processed by current server
+		let handler = this.getHandler(routeRecord);
+		if (!handler) {
+			logger.error(
+				"[handleManager]: fail to find handler for %j",
+				msg.__route__
+			);
+			utils.invokeCallback(
+				cb!,
+				new Error("fail to find handler for " + msg.__route__)
+			);
+			return;
+		}
+		let start = Date.now();
+		let self = this;
 
-Service.prototype.name = 'handler';
+		let callback = (err: any, resp: any, opts: any) => {
+			if (self.enableForwardLog) {
+				let log = {
+					route: msg.__route__,
+					args: msg,
+					time: utils.format(new Date(start)),
+					timeUsed: Date.now() - start
+				};
+				forwardLogger.info(JSON.stringify(log));
+			}
 
-/**
- * Handler the request.
- */
-Service.prototype.handle = function(routeRecord, msg, session, cb) {
-  // the request should be processed by current server
-  var handler = this.getHandler(routeRecord);
-  if(!handler) {
-    logger.error('[handleManager]: fail to find handler for %j', msg.__route__);
-    utils.invokeCallback(cb, new Error('fail to find handler for ' + msg.__route__));
-    return;
-  }
-  var start = Date.now();
-  var self = this;
+			// resp = getResp(arguments);
+			utils.invokeCallback(cb!, err, resp, opts);
+		};
 
-  var callback = function(err, resp, opts) {
-    if(self.enableForwardLog) {
-      var log = {
-        route : msg.__route__,
-        args : msg,
-        time : utils.format(new Date(start)),
-        timeUsed : new Date() - start
-      };
-      forwardLogger.info(JSON.stringify(log));
-    }
+		let method = routeRecord.method;
 
-    // resp = getResp(arguments);
-    utils.invokeCallback(cb, err, resp, opts);
-  }
+		if (!Array.isArray(msg)) {
+			handler[method](msg, session, callback);
+		} else {
+			msg.push(session);
+			msg.push(callback);
+			handler[method].apply(handler, msg);
+		}
+		return;
+	}
 
-  var method = routeRecord.method;
+	getHandler(routeRecord: RouteRecord) {
+		let serverType = routeRecord.serverType;
+		if (!this.handlersMap[serverType]) {
+			loadHandlers(this.app, serverType, this.handlersMap);
+		}
+		let handlers = this.handlersMap[serverType] || {};
+		let handler = handlers[routeRecord.handler];
+		if (!handler) {
+			logger.warn(
+				"could not find handler for routeRecord: %j",
+				routeRecord
+			);
+			return null;
+		}
+		if (typeof handler[routeRecord.method] !== "function") {
+			logger.warn(
+				"could not find the method %s in handler: %s",
+				routeRecord.method,
+				routeRecord.handler
+			);
+			return null;
+		}
+		return handler;
+	}
+}
 
-  if(!Array.isArray(msg)) {
-    handler[method](msg, session, callback);
-  } else {
-    msg.push(session);
-    msg.push(callback);
-    handler[method].apply(handler, msg);
-  }
-  return;
-};
+function loadHandlers(
+	app: Application,
+	serverType: string,
+	handlersMap: HandlersMap
+) {
+	let p = pathUtil.getHandlerPath(app.base, serverType);
+	if (p) {
+		handlersMap[serverType] = Loader.load(p, app);
+	}
+}
 
-/**
- * Get handler instance by routeRecord.
- *
- * @param  {Object} handlers    handler map
- * @param  {Object} routeRecord route record parsed from route string
- * @return {Object}             handler instance if any matchs or null for match fail
- */
-Service.prototype.getHandler = function(routeRecord) {
-  var serverType = routeRecord.serverType;
-  if(!this.handlerMap[serverType]) {
-    loadHandlers(this.app, serverType, this.handlerMap);
-  }
-  var handlers = this.handlerMap[serverType] || {};
-  var handler = handlers[routeRecord.handler];
-  if(!handler) {
-    logger.warn('could not find handler for routeRecord: %j', routeRecord);
-    return null;
-  }
-  if(typeof handler[routeRecord.method] !== 'function') {
-    logger.warn('could not find the method %s in handler: %s', routeRecord.method, routeRecord.handler);
-    return null;
-  }
-  return handler;
-};
+function watchHandlers(app: Application, handlersMap: HandlersMap) {
+	let p = pathUtil.getHandlerPath(app.base, app.serverType);
+	if (!!p) {
+		fs.watch(p, (event, name) => {
+			if (event === "change") {
+				handlersMap[app.serverType] = Loader.load(p, app);
+			}
+		});
+	}
+}
 
-/**
- * Load handlers from current application
- */
-var loadHandlers = function(app, serverType, handlerMap) {
-  var p = pathUtil.getHandlerPath(app.getBase(), serverType);
-  if(p) {
-    handlerMap[serverType] = Loader.load(p, app);
-  }
-};
+function getResp(args: any[]) {
+	let len = args.length;
+	if (len == 1) {
+		return [];
+	}
 
-var watchHandlers = function(app, handlerMap) {
-  var p = pathUtil.getHandlerPath(app.getBase(), app.serverType);
-  if (!!p){
-    fs.watch(p, function(event, name) {
-      if(event === 'change') {
-        handlerMap[app.serverType] = Loader.load(p, app);
-      }
-    });
-  }
-};
+	if (len == 2) {
+		return [args[1]];
+	}
 
-var getResp = function(args) {
-  var len = args.length;
-  if(len == 1) {
-    return [];
-  }
+	if (len == 3) {
+		return [args[1], args[2]];
+	}
 
-  if(len == 2) {
-    return [args[1]];
-  }
+	if (len == 4) {
+		return [args[1], args[2], args[3]];
+	}
 
-  if(len == 3) {
-    return [args[1], args[2]];
-  }
+	let r = new Array(len);
+	for (let i = 1; i < len; i++) {
+		r[i] = args[i];
+	}
 
-  if(len == 4) {
-    return [args[1], args[2], args[3]];
-  }
-
-  var r = new Array(len);
-  for (var i = 1; i < len; i++) {
-    r[i] = args[i];
-  }
-
-  return r;
+	return r;
 }

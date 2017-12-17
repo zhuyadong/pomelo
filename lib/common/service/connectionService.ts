@@ -1,5 +1,21 @@
 import { Application } from "../../application";
 
+/*
+export interface IConnectionService {
+  addLoginedUser(uid: string, info: any):void;
+  updateUserInfo(uid: string, info: any):void;
+  increaseConnectionCount():void;
+  removeLoginedUser(uid: string):void;
+  decreaseConnectionCount(uid: string):void;
+  getStatisticsInfo():{
+      serverId: string;
+      totalConnCount: number;
+      loginedCount: number;
+      loginedList: any[];
+  };
+}
+*/
+
 export class ConnectionService {
   readonly serverId: string;
 

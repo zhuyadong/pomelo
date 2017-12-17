@@ -47,6 +47,7 @@ export class ChannelService implements Component {
   constructor(public readonly app: Application, opts: ChannelServiceOpts) {
     opts = opts || {};
     this._channels = {};
+    this.name = '__channel__';
     this.prefix = opts.prefix;
     this.store = opts.store;
     this.broadcastFilter = opts.broadcastFilter;
