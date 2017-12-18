@@ -103,7 +103,7 @@ export interface Scheduler {
     reqId: number,
     route: string,
     msg: any,
-    recvs: string[],
+    recvs: number[],
     opts: any,
     cb?: Function
   ): void;

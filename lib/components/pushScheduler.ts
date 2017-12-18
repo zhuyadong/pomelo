@@ -19,7 +19,7 @@ export class PushSchedulerComponent {
     reqId: number,
     route: string,
     msg: any,
-    recvs: string[],
+    recvs: number[],
     opts: any,
     cb: Function
   ) => void;
@@ -63,7 +63,7 @@ export class PushSchedulerComponent {
     reqId: number,
     route: string,
     msg: any,
-    recvs: string[],
+    recvs: number[],
     opts: any,
     cb: Function
   ) {

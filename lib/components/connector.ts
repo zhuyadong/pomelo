@@ -6,6 +6,7 @@ import taskManager = require('../common/manager/taskManager');
 import { ServerComponent } from "./server";
 import { SessionComponent } from './session';
 import { ISocket } from '../pomelo';
+import { isObject } from '../util/utils';
 let pomelo = require("../pomelo");
 let rsa = require("node-bignumber");
 let events = require("../util/events");
@@ -101,7 +102,7 @@ start(cb?:Function) {
 
 afterStart(cb?:Function) {
 	this.connector.start(cb!);
-	this.connector.on("connection", hostFilter.bind(this, bindEvents));
+	this.connector.on("connection", this.hostFilter.bind(this, this.bindEvents));
 };
 
 stop(force:boolean, cb:Function) {
@@ -114,7 +115,7 @@ stop(force:boolean, cb:Function) {
 	}
 };
 
-send(reqId:number, route:string, msg:any, recvs:string[], opts:any, cb:Function) {
+send(reqId:number, route:string, msg:any, recvs:number[], opts:any, cb:Function) {
 	logger.debug(
 		"[%s] send message reqId: %s, route: %s, msg: %j, receivers: %j, opts: %j",
 		this.app.serverId,
@@ -140,9 +141,8 @@ send(reqId:number, route:string, msg:any, recvs:string[], opts:any, cb:Function)
 	this.doSend(reqId, route, emsg, recvs, opts, cb);
 };
 
-sendAsync(reqId:number, route:string, msg:any, recvs:string[], opts:any, cb:Function) {
+sendAsync(reqId:number, route:string, msg:any, recvs:number[], opts:any, cb:Function) {
 	let emsg = msg;
-	let self = this;
 
 	if (this.encode) {
 		// use costumized encode
@@ -152,7 +152,7 @@ sendAsync(reqId:number, route:string, msg:any, recvs:string[], opts:any, cb:Func
 			}
 
 			emsg = encodeMsg;
-			self.doSend(reqId, route, emsg, recvs, opts, cb);
+			this.doSend(reqId, route, emsg, recvs, opts, cb);
 		});
 	} else if (this.connector.encode) {
 		// use connector default encode
@@ -162,12 +162,12 @@ sendAsync(reqId:number, route:string, msg:any, recvs:string[], opts:any, cb:Func
 			}
 
 			emsg = encodeMsg;
-			self.doSend(reqId, route, emsg, recvs, opts, cb);
+			this.doSend(reqId, route, emsg, recvs, opts, cb);
 		});
 	}
 };
 
-doSend(reqId:number, route:string, emsg:any, recvs:string[], opts:any, cb:Function) {
+doSend(reqId:number, route:string, emsg:any, recvs:number[], opts:any, cb:Function) {
 	if (!emsg) {
 		process.nextTick(function() {
 			return (
@@ -191,7 +191,7 @@ doSend(reqId:number, route:string, emsg:any, recvs:string[], opts:any, cb:Functi
 	);
 };
 
-setPubKey(id:string, key:any) {
+setPubKey(id:number, key:any) {
 	let pubKey = new rsa.Key();
 	pubKey.n = new rsa.BigInteger(key.rsa_n, 16);
 	pubKey.e = key.rsa_e;
@@ -200,6 +200,301 @@ setPubKey(id:string, key:any) {
 
 getPubKey(id:string) {
 	return this.keys[id];
+};
+
+hostFilter(cb:Function, socket:ISocket) {
+	if (!this.useHostFilter) {
+		return cb(this, socket);
+	}
+
+	let ip = socket.remoteAddress.ip;
+	let check = (list:(string|RegExp)[])=> {
+		for (let address in list) {
+			let exp = new RegExp(list[address]);
+			if (exp.test(ip)) {
+				socket.disconnect();
+				return true;
+			}
+		}
+		return false;
+	};
+	// dynamical check
+	if (this.blacklist.length !== 0 && !!check(this.blacklist)) {
+		return;
+	}
+	// static check
+	if (!!this.blacklistFun && typeof this.blacklistFun === "function") {
+		this.blacklistFun((err, list) =>{
+			if (!!err) {
+				logger.error("connector blacklist error: %j", err.stack);
+				utils.invokeCallback(cb, this, socket);
+				return;
+			}
+			if (!Array.isArray(list)) {
+				logger.error("connector blacklist is not array: %j", list);
+				utils.invokeCallback(cb, this, socket);
+				return;
+			}
+			if (!!check(list)) {
+				return;
+			} else {
+				utils.invokeCallback(cb, this, socket);
+				return;
+			}
+		});
+	} else {
+		utils.invokeCallback(cb, this, socket);
+	}
+};
+
+bindEvents(socket:ISocket) {
+	let curServer = this.app.curServer;
+	let maxConnections = curServer["max-connections"];
+	if (this.connection && maxConnections) {
+		this.connection.increaseConnectionCount();
+		let statisticInfo = this.connection.getStatisticsInfo();
+		if (statisticInfo.totalConnCount > maxConnections) {
+			logger.warn(
+				"the server %s has reached the max connections %s",
+				curServer.id,
+				maxConnections
+			);
+			socket.disconnect();
+			return;
+		}
+	}
+
+	//create session for connection
+	let session = this.getSession(socket);
+	let closed = false;
+
+	socket.on("disconnect", ()=>{
+		if (closed) {
+			return;
+		}
+		closed = true;
+		if (this.connection) {
+			this.connection.decreaseConnectionCount(session.uid);
+		}
+	});
+
+	socket.on("error", () =>{
+		if (closed) {
+			return;
+		}
+		closed = true;
+		if (this.connection) {
+			this.connection.decreaseConnectionCount(session.uid);
+		}
+	});
+
+	// new message
+	socket.on("message", (msg)=> {
+		let dmsg = msg;
+		if (this.useAsyncCoder) {
+			return this.handleMessageAsync(msg, session, socket);
+		}
+
+		if (this.decode) {
+			dmsg = this.decode(msg, session);
+		} else if (this.connector.decode) {
+			dmsg = this.connector.decode(msg, <any>socket);
+		}
+		if (!dmsg) {
+			// discard invalid message
+			return;
+		}
+
+		// use rsa crypto
+		if (this.useCrypto) {
+			let verified = this.verifyMessage(session, dmsg);
+			if (!verified) {
+				logger.error("fail to verify the data received from client.");
+				return;
+			}
+		}
+
+		this.handleMessage(session, dmsg);
+	}); //on message end
+};
+
+//FIXME:这里的代码好像根本没有用，没有一个decode函数支持cb的
+private handleMessageAsync(msg:any, session:Session, socket:ISocket) {
+	if (this.decode) {
+		this.decode(msg, session, (err:any, dmsg:any)=> {
+			if (err) {
+				logger.error(
+					"fail to decode message from client %s .",
+					err.stack
+				);
+				return;
+			}
+
+			this.doHandleMessage(dmsg, session);
+		});
+	} else if (this.connector.decode) {
+		this.connector.decode(msg, <any>socket, (err:any, dmsg:any)=> {
+			if (err) {
+				logger.error(
+					"fail to decode message from client %s .",
+					err.stack
+				);
+				return;
+			}
+
+			this.doHandleMessage(dmsg, session);
+		});
+	}
+};
+
+private doHandleMessage(dmsg:any, session:Session) {
+	if (!dmsg) {
+		// discard invalid message
+		return;
+	}
+
+	// use rsa crypto
+	if (this.useCrypto) {
+		let verified = this.verifyMessage(session, dmsg);
+		if (!verified) {
+			logger.error("fail to verify the data received from client.");
+			return;
+		}
+	}
+
+	this.handleMessage(session, dmsg);
+};
+
+getSession(socket:ISocket) {
+	let app = this.app,
+		sid = socket.id;
+	let session = this.session.get(sid);
+	if (session) {
+		return session;
+	}
+
+	session = this.session.create(sid, app.serverId, socket);
+	logger.debug(
+		"[%s] getSession session is created with session id: %s",
+		app.serverId,
+		sid
+	);
+
+	// bind events for session
+	socket.on("disconnect", session.closed.bind(session));
+	socket.on("error", session.closed.bind(session));
+	session.on("closed", onSessionClose.bind(null, app));
+	session.on("bind", (uid)=> {
+		logger.debug(
+			"session on [%s] bind with uid: %s",
+			this.app.serverId,
+			uid
+		);
+		// update connection statistics if necessary
+		if (this.connection) {
+			this.connection.addLoginedUser(uid, {
+				loginTime: Date.now(),
+				uid: uid,
+				address:
+					socket.remoteAddress.ip + ":" + socket.remoteAddress.port
+			});
+		}
+		this.app.event.emit(events.BIND_SESSION, session);
+	});
+
+	session.on("unbind", (uid) =>{
+		if (this.connection) {
+			this.connection.removeLoginedUser(uid);
+		}
+		this.app.event.emit(events.UNBIND_SESSION, session);
+	});
+
+	return session;
+};
+verifyMessage(session:Session, msg:any) {
+	let sig = msg.body.__crypto__;
+	if (!sig) {
+		logger.error(
+			"receive data from client has no signature [%s]",
+			this.app.serverId
+		);
+		return false;
+	}
+
+	let pubKey;
+
+	if (!session) {
+		logger.error("could not find session.");
+		return false;
+	}
+
+	if (!session.get("pubKey")) {
+		pubKey = this.getPubKey(session.id.toString());
+		if (!!pubKey) {
+			delete this.keys[session.id];
+			session.set("pubKey", pubKey);
+		} else {
+			logger.error(
+				"could not get public key, session id is %s",
+				session.id
+			);
+			return false;
+		}
+	} else {
+		pubKey = session.get("pubKey");
+	}
+
+	if (!pubKey.n || !pubKey.e) {
+		logger.error(
+			"could not verify message without public key [%s]",
+			this.app.serverId
+		);
+		return false;
+	}
+
+	delete msg.body.__crypto__;
+
+	let message = JSON.stringify(msg.body);
+	if (utils.hasChineseChar(message)) message = utils.unicodeToUtf8(message);
+
+	return pubKey.verifyString(message, sig);
+};
+
+handleMessage(session:Session, msg:any) {
+	logger.debug(
+		"[%s] handleMessage session id: %s, msg: %j",
+		this.app.serverId,
+		session.id,
+		msg
+	);
+	let type = checkServerType(msg.route);
+	if (!type) {
+		logger.error("invalid route string. route : %j", msg.route);
+		return;
+	}
+	this.server.globalHandle(msg, session.toFrontendSession(), (
+		err:any,
+		resp:any,
+		opts:any
+	)=> {
+		if (resp && !msg.id) {
+			logger.warn("try to response to a notify: %j", msg.route);
+			return;
+		}
+		if (!msg.id && !resp) return;
+		if (!resp) resp = {};
+		if (!!err && !resp.code) {
+			resp.code = 500;
+		}
+		opts = {
+			type: "response",
+			userOptions: opts || {}
+		};
+		// for compatiablity
+		opts.isResponse = true;
+
+		this.send(msg.id, msg.route, resp, [session.id], opts, function() {});
+	});
 };
 
 }
@@ -224,265 +519,13 @@ function getDefaultConnector(app:Application, opts?:any) {
 	return new DefaultConnector(curServer.clientPort, curServer.host, opts);
 };
 
-function hostFilter(cb:Function, socket:ISocket) {
-	if (!this.useHostFilter) {
-		return cb(this, socket);
-	}
 
-	let ip = socket.remoteAddress.ip;
-	let check = function(list) {
-		for (let address in list) {
-			let exp = new RegExp(list[address]);
-			if (exp.test(ip)) {
-				socket.disconnect();
-				return true;
-			}
-		}
-		return false;
-	};
-	// dynamical check
-	if (this.blacklist.length !== 0 && !!check(this.blacklist)) {
-		return;
-	}
-	// static check
-	if (!!this.blacklistFun && typeof this.blacklistFun === "function") {
-		let self = this;
-		self.blacklistFun(function(err, list) {
-			if (!!err) {
-				logger.error("connector blacklist error: %j", err.stack);
-				utils.invokeCallback(cb, self, socket);
-				return;
-			}
-			if (!Array.isArray(list)) {
-				logger.error("connector blacklist is not array: %j", list);
-				utils.invokeCallback(cb, self, socket);
-				return;
-			}
-			if (!!check(list)) {
-				return;
-			} else {
-				utils.invokeCallback(cb, self, socket);
-				return;
-			}
-		});
-	} else {
-		utils.invokeCallback(cb, this, socket);
-	}
-};
-
-let bindEvents = function(self, socket) {
-	let curServer = self.app.getCurServer();
-	let maxConnections = curServer["max-connections"];
-	if (self.connection && maxConnections) {
-		self.connection.increaseConnectionCount();
-		let statisticInfo = self.connection.getStatisticsInfo();
-		if (statisticInfo.totalConnCount > maxConnections) {
-			logger.warn(
-				"the server %s has reached the max connections %s",
-				curServer.id,
-				maxConnections
-			);
-			socket.disconnect();
-			return;
-		}
-	}
-
-	//create session for connection
-	let session = getSession(self, socket);
-	let closed = false;
-
-	socket.on("disconnect", function() {
-		if (closed) {
-			return;
-		}
-		closed = true;
-		if (self.connection) {
-			self.connection.decreaseConnectionCount(session.uid);
-		}
-	});
-
-	socket.on("error", function() {
-		if (closed) {
-			return;
-		}
-		closed = true;
-		if (self.connection) {
-			self.connection.decreaseConnectionCount(session.uid);
-		}
-	});
-
-	// new message
-	socket.on("message", function(msg) {
-		let dmsg = msg;
-		if (self.useAsyncCoder) {
-			return handleMessageAsync(self, msg, session, socket);
-		}
-
-		if (self.decode) {
-			dmsg = self.decode(msg, session);
-		} else if (self.connector.decode) {
-			dmsg = self.connector.decode(msg, socket);
-		}
-		if (!dmsg) {
-			// discard invalid message
-			return;
-		}
-
-		// use rsa crypto
-		if (self.useCrypto) {
-			let verified = verifyMessage(self, session, dmsg);
-			if (!verified) {
-				logger.error("fail to verify the data received from client.");
-				return;
-			}
-		}
-
-		handleMessage(self, session, dmsg);
-	}); //on message end
-};
-
-let handleMessageAsync = function(self, msg, session, socket) {
-	if (self.decode) {
-		self.decode(msg, session, function(err, dmsg) {
-			if (err) {
-				logger.error(
-					"fail to decode message from client %s .",
-					err.stack
-				);
-				return;
-			}
-
-			doHandleMessage(self, dmsg, session);
-		});
-	} else if (self.connector.decode) {
-		self.connector.decode(msg, socket, function(err, dmsg) {
-			if (err) {
-				logger.error(
-					"fail to decode message from client %s .",
-					err.stack
-				);
-				return;
-			}
-
-			doHandleMessage(self, dmsg, session);
-		});
-	}
-};
-
-let doHandleMessage = function(self, dmsg, session) {
-	if (!dmsg) {
-		// discard invalid message
-		return;
-	}
-
-	// use rsa crypto
-	if (self.useCrypto) {
-		let verified = verifyMessage(self, session, dmsg);
-		if (!verified) {
-			logger.error("fail to verify the data received from client.");
-			return;
-		}
-	}
-
-	handleMessage(self, session, dmsg);
-};
-
-/**
- * get session for current connection
- */
-let getSession = function(self, socket) {
-	let app = self.app,
-		sid = socket.id;
-	let session = self.session.get(sid);
-	if (session) {
-		return session;
-	}
-
-	session = self.session.create(sid, app.getServerId(), socket);
-	logger.debug(
-		"[%s] getSession session is created with session id: %s",
-		app.getServerId(),
-		sid
-	);
-
-	// bind events for session
-	socket.on("disconnect", session.closed.bind(session));
-	socket.on("error", session.closed.bind(session));
-	session.on("closed", onSessionClose.bind(null, app));
-	session.on("bind", function(uid) {
-		logger.debug(
-			"session on [%s] bind with uid: %s",
-			self.app.serverId,
-			uid
-		);
-		// update connection statistics if necessary
-		if (self.connection) {
-			self.connection.addLoginedUser(uid, {
-				loginTime: Date.now(),
-				uid: uid,
-				address:
-					socket.remoteAddress.ip + ":" + socket.remoteAddress.port
-			});
-		}
-		self.app.event.emit(events.BIND_SESSION, session);
-	});
-
-	session.on("unbind", function(uid) {
-		if (self.connection) {
-			self.connection.removeLoginedUser(uid);
-		}
-		self.app.event.emit(events.UNBIND_SESSION, session);
-	});
-
-	return session;
-};
-
-let onSessionClose = function(app, session, reason) {
+function onSessionClose(app:Application, session:Session, reason:any) {
 	taskManager.closeQueue(session.id, true);
 	app.event.emit(events.CLOSE_SESSION, session);
 };
 
-let handleMessage = function(self, session, msg) {
-	logger.debug(
-		"[%s] handleMessage session id: %s, msg: %j",
-		self.app.serverId,
-		session.id,
-		msg
-	);
-	let type = checkServerType(msg.route);
-	if (!type) {
-		logger.error("invalid route string. route : %j", msg.route);
-		return;
-	}
-	self.server.globalHandle(msg, session.toFrontendSession(), function(
-		err,
-		resp,
-		opts
-	) {
-		if (resp && !msg.id) {
-			logger.warn("try to response to a notify: %j", msg.route);
-			return;
-		}
-		if (!msg.id && !resp) return;
-		if (!resp) resp = {};
-		if (!!err && !resp.code) {
-			resp.code = 500;
-		}
-		opts = {
-			type: "response",
-			userOptions: opts || {}
-		};
-		// for compatiablity
-		opts.isResponse = true;
-
-		self.send(msg.id, msg.route, resp, [session.id], opts, function() {});
-	});
-};
-
-/**
- * Get server type form request message.
- */
-let checkServerType = function(route) {
+function checkServerType(route:string) {
 	if (!route) {
 		return null;
 	}
@@ -491,53 +534,4 @@ let checkServerType = function(route) {
 		return null;
 	}
 	return route.substring(0, idx);
-};
-
-let verifyMessage = function(self, session, msg) {
-	let sig = msg.body.__crypto__;
-	if (!sig) {
-		logger.error(
-			"receive data from client has no signature [%s]",
-			self.app.serverId
-		);
-		return false;
-	}
-
-	let pubKey;
-
-	if (!session) {
-		logger.error("could not find session.");
-		return false;
-	}
-
-	if (!session.get("pubKey")) {
-		pubKey = self.getPubKey(session.id);
-		if (!!pubKey) {
-			delete self.keys[session.id];
-			session.set("pubKey", pubKey);
-		} else {
-			logger.error(
-				"could not get public key, session id is %s",
-				session.id
-			);
-			return false;
-		}
-	} else {
-		pubKey = session.get("pubKey");
-	}
-
-	if (!pubKey.n || !pubKey.e) {
-		logger.error(
-			"could not verify message without public key [%s]",
-			self.app.serverId
-		);
-		return false;
-	}
-
-	delete msg.body.__crypto__;
-
-	let message = JSON.stringify(msg.body);
-	if (utils.hasChineseChar(message)) message = utils.unicodeToUtf8(message);
-
-	return pubKey.verifyString(message, sig);
 };

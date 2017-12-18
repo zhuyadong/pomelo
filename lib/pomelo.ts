@@ -20,6 +20,7 @@ export interface RemoteAddress {
 }
 
 export interface ISocket extends EventEmitter{
+    readonly id:number;
     readonly remoteAddress:Readonly<RemoteAddress>;
     send(msg:any):void;
     disconnect():void;

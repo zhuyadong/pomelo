@@ -13,7 +13,7 @@ export function addTask(key:string, fn:Function, ontimeout?:Function, timeout?:n
   return queue.push(fn, ontimeout, timeout);
 };
 
-export function closeQueue(key:string, force:boolean = false) {
+export function closeQueue(key:number, force:boolean = false) {
   if(!queues[key]) {
     // ignore illeagle key
     return;
