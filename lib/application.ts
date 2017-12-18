@@ -1,15 +1,20 @@
+import { PushSchedulerComponent } from './components/pushScheduler';
+import { ConnectionComponent } from "./components/connection";
 import { BackendSessionService } from "./common/service/backendSessionService";
-import process = require("process");
-import path = require("path");
-import fs = require("fs");
-import { FILEPATH, KEYWORDS, RESERVED, LIFECYCLE } from "./util/constants";
+import process = require('process');
+import path = require('path');
+import fs = require('fs');
+import { FILEPATH, KEYWORDS, RESERVED, LIFECYCLE, DIR } from "./util/constants";
 import { EventEmitter } from "events";
-import { Session } from './common/service/sessionService';
+import { Session } from "./common/service/sessionService";
 import { events } from "./pomelo";
 import { invokeCallback } from "./util/utils";
 import { runServers } from "./master/starter";
 import { ChannelService } from "./common/service/channelService";
 import { watch } from "fs";
+import appManager = require('./common/manager/appManager');
+import { ServerComponent } from "./components/server";
+import { SessionComponent } from "./components/session";
 const Logger = require("pomelo-logger");
 const logger = require("pomelo-logger").getLogger("pomelo", __filename);
 
@@ -32,6 +37,19 @@ export interface ServerInfo {
   [idx: string]: any;
 }
 
+export interface Module {
+  moduleId: string;
+  start(cb?: Function): void;
+}
+
+export interface ModuleInfo {
+  moduleId: string;
+  module: Module | Function;
+  opts: any;
+}
+
+export type ModuleInfoMap = { [idx: string]: ModuleInfo };
+
 export type ServerInfoArrayMap = { [idx: string]: ServerInfo[] };
 export type ServerInfoMap = { [idx: string]: ServerInfo };
 export type ClusterSeqMap = { [idx: string]: number };
@@ -39,6 +57,7 @@ export type LifecycleCbs = { [idx: string]: Function };
 export type Settings = { [idx: string]: any };
 export type ArgsMap = { [idx: string]: string | number };
 export type CallbackMap = { [idx: string]: (cb: Function) => void };
+export type FunctionMap = { [idx: string]: Function };
 
 export interface RPCInvokeFunc {
   (serverId: string, msg: any, cb?: Function): void;
@@ -59,7 +78,7 @@ export type AfterFilterFunc = (
 
 export interface Filter {
   before(msg: any, session: Session, next: Function): void;
-  after(err: any, msg: any, session: Session, resp:any, next: Function): void;
+  after(err: any, msg: any, session: Session, resp: any, next: Function): void;
 }
 export interface RPCFilter {
   before(serverId: string, msg: any, opts: any, next: Function): void;
@@ -77,27 +96,60 @@ export interface Component {
   readonly app?: Application;
 }
 
+export interface Scheduler {
+  start?(cb?:Function):void;
+  stop?(cb?:Function):void;
+  schedule(
+    reqId: number,
+    route: string,
+    msg: any,
+    recvs: string[],
+    opts: any,
+    cb?: Function
+  ): void;
+}
+export interface SchedulerConstructor {
+  (...args:any[]):Scheduler;
+}
+
+export type SchedulerMap = {[idx:string]:Scheduler};
+
 export interface Connector extends EventEmitter {
   new (port: number, host: string, opts: object): Connector;
   start(cb: Function): void;
-  stop(): void;
+  stop(force: boolean, cb: Function): void;
   close?(): void;
+  encode(reqId: number, route: string, msg: any, cb?: Function): any;
+  decode(msg: any, session: Session, cb?: Function): any;
 }
 
-export type ConnectorEncodeFunc = (reqId:number, route:string, msg:any) => any;
-export type ConnectorDecodeFunc = (msg:any, session:Session) => any;
-export type Blacklist = (RegExp|string)[];
-export type BlacklistFunc = (cb:(err:any, list:Blacklist)=>void)=>void;
+export type ConnectorEncodeFunc = (
+  reqId: number,
+  route: string,
+  msg: any,
+  cb?: Function
+) => any;
+export type ConnectorDecodeFunc = (
+  msg: any,
+  session: Session,
+  cb?: Function
+) => any;
+export type Blacklist = (RegExp | string)[];
+export type BlacklistFunc = (cb: (err: any, list: Blacklist) => void) => void;
 
 interface AppComponents {
   __backendSession__: BackendSessionService;
-  __server__: Component;
-  [idx:string]:Component;
+  __server__: ServerComponent;
+  __session__: SessionComponent;
+  __connection__: ConnectionComponent;
+  __pushScheduler__: PushSchedulerComponent;
+  [idx: string]: Component;
 }
 
 export class Application {
   readonly event: EventEmitter;
   rpcInvoke: RPCInvokeFunc;
+  sysrpc: any; //TODO:pomelo-rpc
 
   private _components: AppComponents;
   get components(): Readonly<AppComponents> {
@@ -425,10 +477,12 @@ export class Application {
   get(key: "servers"): ServerInfoArrayMap;
   get(key: "channelService"): ChannelService;
   get(key: "backendSessionService"): BackendSessionService;
+  get(key: "__modules__"): ModuleInfoMap;
   get(key: string): any;
   /* 如果要给Applicatoin.get加上新的key，可以在需要的地方如下这样merge进入Application:
   import 'path_to/application'
 import { ChannelService } from './common/service/channelService';
+import { SessionComponent } from '../../../gitee/pomelo-ts/pomelo/index';
   declare module 'path_to/application' {
     export interface Application {
       get(setting: 'mykey'):SomeType;
@@ -455,18 +509,116 @@ import { ChannelService } from './common/service/channelService';
     return this.set(setting, false);
   }
 
-  configure(env: string, type: string, fn: Function) {}
+  configure(env: string, type: string, fn: Function) {
+    let args = [].slice.call(arguments);
+    fn = args.pop();
+    env = type = RESERVED.ALL;
 
-  registerAdmin(moduleId: string, module: any, opts: any) {}
+    if (args.length > 0) {
+      env = args[0];
+    }
+    if (args.length > 1) {
+      type = args[1];
+    }
 
-  use(plugin: any, opts?: any) {}
+    if (env === RESERVED.ALL || contains(this.settings.env, env)) {
+      if (type === RESERVED.ALL || contains(this.settings.serverType, type)) {
+        fn.call(this);
+      }
+    }
+    return this;
+  }
+
+  registerAdmin(
+    moduleId: string | Module | Function,
+    module?: Module | Function | any,
+    opts?: any
+  ) {
+    let modules = this.get(KEYWORDS.MODULE);
+    if (!modules) {
+      modules = {};
+      this.set(KEYWORDS.MODULE, modules);
+    }
+
+    if (typeof moduleId !== "string") {
+      opts = module;
+      module = moduleId;
+      if (module) {
+        moduleId = (<Module>module).moduleId;
+      }
+    }
+
+    if (!moduleId) {
+      return;
+    }
+
+    modules[moduleId as string] = {
+      moduleId: moduleId,
+      module: module,
+      opts: opts
+    };
+  }
+
+  use(plugin: any, opts?: any) {
+    if (!plugin.components) {
+      logger.error("invalid components, no components exist");
+      return;
+    }
+
+    let self = this;
+    opts = opts || {};
+    let dir = path.dirname(plugin.components);
+
+    if (!fs.existsSync(plugin.components)) {
+      logger.error("fail to find components, find path: %s", plugin.components);
+      return;
+    }
+
+    fs.readdirSync(plugin.components).forEach(function(filename) {
+      if (!/\.js$/.test(filename)) {
+        return;
+      }
+      let name = path.basename(filename, ".js");
+      let param = opts[name] || {};
+      let absolutePath = path.join(dir, DIR.COMPONENT, filename);
+      if (!fs.existsSync(absolutePath)) {
+        logger.error("component %s not exist at %s", name, absolutePath);
+      } else {
+        self.load(require(absolutePath), param);
+      }
+    });
+
+    // load events
+    if (!plugin.events) {
+      return;
+    } else {
+      if (!fs.existsSync(plugin.events)) {
+        logger.error("fail to find events, find path: %s", plugin.events);
+        return;
+      }
+
+      fs.readdirSync(plugin.events).forEach(function(filename) {
+        if (!/\.js$/.test(filename)) {
+          return;
+        }
+        let absolutePath = path.join(dir, DIR.EVENT, filename);
+        if (!fs.existsSync(absolutePath)) {
+          logger.error("events %s not exist at %s", filename, absolutePath);
+        } else {
+          bindEvents(require(absolutePath), self);
+        }
+      });
+    }
+  }
 
   transaction(
     name: string,
     conditions: CallbackMap,
     handlers: CallbackMap,
     retry: number
-  ) {}
+  ) {
+    appManager.transaction(name, conditions, handlers, retry);
+  }
 
   getServerById(serverId: string) {
     return this._servers[serverId];

@@ -1,11 +1,15 @@
-import { Component, Application, Connector, ConnectorEncodeFunc, ConnectorDecodeFunc, BlacklistFunc, Blacklist } from "../application";
+import { ConnectionComponent } from './connection';
+import { Component, Application, Connector, ConnectorEncodeFunc, ConnectorDecodeFunc, BlacklistFunc, Blacklist } from '../application';
 import { Session } from '../common/service/sessionService';
 const logger = require("pomelo-logger").getLogger("pomelo", __filename);
-import taskManager = require("../common/manager/taskManager");
-var pomelo = require("../pomelo");
-var rsa = require("node-bignumber");
-var events = require("../util/events");
-var utils = require("../util/utils");
+import taskManager = require('../common/manager/taskManager');
+import { ServerComponent } from "./server";
+import { SessionComponent } from './session';
+import { ISocket } from '../pomelo';
+let pomelo = require("../pomelo");
+let rsa = require("node-bignumber");
+let events = require("../util/events");
+let utils = require("../util/utils");
 
 export default (app:Application, opts?:{connector?:Connector})=> {
 	return new ConnectorComponent(app, opts);
@@ -25,16 +29,18 @@ export interface ConnectorComponentOpts {
 
 export class ConnectorComponent implements Component {
     readonly name:string = '__connector__';
-    readonly connector:Connector;
+    private connector:Connector;
     readonly encode:ConnectorEncodeFunc;
     readonly decode:ConnectorDecodeFunc;
     readonly useCrypto:boolean;
     readonly useHostFilter:boolean;
-    readonly useAsyncCoder:boolean;
+	readonly useAsyncCoder:boolean;
+	readonly server:ServerComponent;
+    readonly session:SessionComponent;
+	readonly connection:ConnectionComponent;
     private blacklistFun:BlacklistFunc;
     private keys:{[idx:string]:any};
     private blacklist:Blacklist;
-    private session:Session;
 	constructor(readonly app: Application, opts?: ConnectorComponentOpts) {
 		opts = opts || {};
 		this.connector = getConnector(app, opts);
@@ -55,21 +61,15 @@ export class ConnectorComponent implements Component {
 			app.load(pomelo.protobuf, app.get("protobufConfig"));
 		}
 
-        app.components.
 		// component dependencies
 		this.server = <any>null;
 		this.session = <any>null;
-		this.connection = null;
+		this.connection = <any>null;
 	}
-}
-var pro = Component.prototype;
-
-pro.name = "__connector__";
-
-pro.start = function(cb) {
-	this.server = this.app.components.__server__;
-	this.session = this.app.components.__session__;
-	this.connection = this.app.components.__connection__;
+start(cb?:Function) {
+	this.server! = this.app.components.__server__;
+	this.session! = this.app.components.__session__;
+	this.connection! = this.app.components.__connection__;
 
 	// check component dependencies
 	if (!this.server) {
@@ -96,25 +96,25 @@ pro.start = function(cb) {
 		return;
 	}
 
-	process.nextTick(cb);
+	process.nextTick(cb!);
 };
 
-pro.afterStart = function(cb) {
-	this.connector.start(cb);
+afterStart(cb?:Function) {
+	this.connector.start(cb!);
 	this.connector.on("connection", hostFilter.bind(this, bindEvents));
 };
 
-pro.stop = function(force, cb) {
+stop(force:boolean, cb:Function) {
 	if (this.connector) {
 		this.connector.stop(force, cb);
-		this.connector = null;
+		delete this.connector;
 		return;
 	} else {
 		process.nextTick(cb);
 	}
 };
 
-pro.send = function(reqId, route, msg, recvs, opts, cb) {
+send(reqId:number, route:string, msg:any, recvs:string[], opts:any, cb:Function) {
 	logger.debug(
 		"[%s] send message reqId: %s, route: %s, msg: %j, receivers: %j, opts: %j",
 		this.app.serverId,
@@ -128,7 +128,7 @@ pro.send = function(reqId, route, msg, recvs, opts, cb) {
 		return this.sendAsync(reqId, route, msg, recvs, opts, cb);
 	}
 
-	var emsg = msg;
+	let emsg = msg;
 	if (this.encode) {
 		// use costumized encode
 		emsg = this.encode.call(this, reqId, route, msg);
@@ -140,13 +140,13 @@ pro.send = function(reqId, route, msg, recvs, opts, cb) {
 	this.doSend(reqId, route, emsg, recvs, opts, cb);
 };
 
-pro.sendAsync = function(reqId, route, msg, recvs, opts, cb) {
-	var emsg = msg;
-	var self = this;
+sendAsync(reqId:number, route:string, msg:any, recvs:string[], opts:any, cb:Function) {
+	let emsg = msg;
+	let self = this;
 
 	if (this.encode) {
 		// use costumized encode
-		this.encode(reqId, route, msg, function(err, encodeMsg) {
+		this.encode(reqId, route, msg, (err:any, encodeMsg:any)=> {
 			if (err) {
 				return cb(err);
 			}
@@ -156,7 +156,7 @@ pro.sendAsync = function(reqId, route, msg, recvs, opts, cb) {
 		});
 	} else if (this.connector.encode) {
 		// use connector default encode
-		this.connector.encode(reqId, route, msg, function(err, encodeMsg) {
+		this.connector.encode(reqId, route, msg, (err:any, encodeMsg:any) =>{
 			if (err) {
 				return cb(err);
 			}
@@ -167,7 +167,7 @@ pro.sendAsync = function(reqId, route, msg, recvs, opts, cb) {
 	}
 };
 
-pro.doSend = function(reqId, route, emsg, recvs, opts, cb) {
+doSend(reqId:number, route:string, emsg:any, recvs:string[], opts:any, cb:Function) {
 	if (!emsg) {
 		process.nextTick(function() {
 			return (
@@ -191,19 +191,21 @@ pro.doSend = function(reqId, route, emsg, recvs, opts, cb) {
 	);
 };
 
-pro.setPubKey = function(id, key) {
-	var pubKey = new rsa.Key();
+setPubKey(id:string, key:any) {
+	let pubKey = new rsa.Key();
 	pubKey.n = new rsa.BigInteger(key.rsa_n, 16);
 	pubKey.e = key.rsa_e;
 	this.keys[id] = pubKey;
 };
 
-pro.getPubKey = function(id) {
+getPubKey(id:string) {
 	return this.keys[id];
 };
 
-var getConnector = function(app, opts) {
-	var connector = opts.connector;
+}
+
+function getConnector(app:Application, opts?:any) {
+	let connector = opts.connector;
 	if (!connector) {
 		return getDefaultConnector(app, opts);
 	}
@@ -212,25 +214,25 @@ var getConnector = function(app, opts) {
 		return connector;
 	}
 
-	var curServer = app.getCurServer();
+	let curServer = app.curServer;
 	return connector(curServer.clientPort, curServer.host, opts);
 };
 
-var getDefaultConnector = function(app, opts) {
-	var DefaultConnector = require("../connectors/sioconnector");
-	var curServer = app.getCurServer();
+function getDefaultConnector(app:Application, opts?:any) {
+	let DefaultConnector = require("../connectors/sioconnector");
+	let curServer = app.curServer;
 	return new DefaultConnector(curServer.clientPort, curServer.host, opts);
 };
 
-var hostFilter = function(cb, socket) {
+function hostFilter(cb:Function, socket:ISocket) {
 	if (!this.useHostFilter) {
 		return cb(this, socket);
 	}
 
-	var ip = socket.remoteAddress.ip;
-	var check = function(list) {
-		for (var address in list) {
-			var exp = new RegExp(list[address]);
+	let ip = socket.remoteAddress.ip;
+	let check = function(list) {
+		for (let address in list) {
+			let exp = new RegExp(list[address]);
 			if (exp.test(ip)) {
 				socket.disconnect();
 				return true;
@@ -244,7 +246,7 @@ var hostFilter = function(cb, socket) {
 	}
 	// static check
 	if (!!this.blacklistFun && typeof this.blacklistFun === "function") {
-		var self = this;
+		let self = this;
 		self.blacklistFun(function(err, list) {
 			if (!!err) {
 				logger.error("connector blacklist error: %j", err.stack);
@@ -268,12 +270,12 @@ var hostFilter = function(cb, socket) {
 	}
 };
 
-var bindEvents = function(self, socket) {
-	var curServer = self.app.getCurServer();
-	var maxConnections = curServer["max-connections"];
+let bindEvents = function(self, socket) {
+	let curServer = self.app.getCurServer();
+	let maxConnections = curServer["max-connections"];
 	if (self.connection && maxConnections) {
 		self.connection.increaseConnectionCount();
-		var statisticInfo = self.connection.getStatisticsInfo();
+		let statisticInfo = self.connection.getStatisticsInfo();
 		if (statisticInfo.totalConnCount > maxConnections) {
 			logger.warn(
 				"the server %s has reached the max connections %s",
@@ -286,8 +288,8 @@ var bindEvents = function(self, socket) {
 	}
 
 	//create session for connection
-	var session = getSession(self, socket);
-	var closed = false;
+	let session = getSession(self, socket);
+	let closed = false;
 
 	socket.on("disconnect", function() {
 		if (closed) {
@@ -311,7 +313,7 @@ var bindEvents = function(self, socket) {
 
 	// new message
 	socket.on("message", function(msg) {
-		var dmsg = msg;
+		let dmsg = msg;
 		if (self.useAsyncCoder) {
 			return handleMessageAsync(self, msg, session, socket);
 		}
@@ -328,7 +330,7 @@ var bindEvents = function(self, socket) {
 
 		// use rsa crypto
 		if (self.useCrypto) {
-			var verified = verifyMessage(self, session, dmsg);
+			let verified = verifyMessage(self, session, dmsg);
 			if (!verified) {
 				logger.error("fail to verify the data received from client.");
 				return;
@@ -339,7 +341,7 @@ var bindEvents = function(self, socket) {
 	}); //on message end
 };
 
-var handleMessageAsync = function(self, msg, session, socket) {
+let handleMessageAsync = function(self, msg, session, socket) {
 	if (self.decode) {
 		self.decode(msg, session, function(err, dmsg) {
 			if (err) {
@@ -367,7 +369,7 @@ var handleMessageAsync = function(self, msg, session, socket) {
 	}
 };
 
-var doHandleMessage = function(self, dmsg, session) {
+let doHandleMessage = function(self, dmsg, session) {
 	if (!dmsg) {
 		// discard invalid message
 		return;
@@ -375,7 +377,7 @@ var doHandleMessage = function(self, dmsg, session) {
 
 	// use rsa crypto
 	if (self.useCrypto) {
-		var verified = verifyMessage(self, session, dmsg);
+		let verified = verifyMessage(self, session, dmsg);
 		if (!verified) {
 			logger.error("fail to verify the data received from client.");
 			return;
@@ -388,10 +390,10 @@ var doHandleMessage = function(self, dmsg, session) {
 /**
  * get session for current connection
  */
-var getSession = function(self, socket) {
-	var app = self.app,
+let getSession = function(self, socket) {
+	let app = self.app,
 		sid = socket.id;
-	var session = self.session.get(sid);
+	let session = self.session.get(sid);
 	if (session) {
 		return session;
 	}
@@ -435,19 +437,19 @@ var getSession = function(self, socket) {
 	return session;
 };
 
-var onSessionClose = function(app, session, reason) {
+let onSessionClose = function(app, session, reason) {
 	taskManager.closeQueue(session.id, true);
 	app.event.emit(events.CLOSE_SESSION, session);
 };
 
-var handleMessage = function(self, session, msg) {
+let handleMessage = function(self, session, msg) {
 	logger.debug(
 		"[%s] handleMessage session id: %s, msg: %j",
 		self.app.serverId,
 		session.id,
 		msg
 	);
-	var type = checkServerType(msg.route);
+	let type = checkServerType(msg.route);
 	if (!type) {
 		logger.error("invalid route string. route : %j", msg.route);
 		return;
@@ -480,19 +482,19 @@ var handleMessage = function(self, session, msg) {
 /**
  * Get server type form request message.
  */
-var checkServerType = function(route) {
+let checkServerType = function(route) {
 	if (!route) {
 		return null;
 	}
-	var idx = route.indexOf(".");
+	let idx = route.indexOf(".");
 	if (idx < 0) {
 		return null;
 	}
 	return route.substring(0, idx);
 };
 
-var verifyMessage = function(self, session, msg) {
-	var sig = msg.body.__crypto__;
+let verifyMessage = function(self, session, msg) {
+	let sig = msg.body.__crypto__;
 	if (!sig) {
 		logger.error(
 			"receive data from client has no signature [%s]",
@@ -501,7 +503,7 @@ var verifyMessage = function(self, session, msg) {
 		return false;
 	}
 
-	var pubKey;
+	let pubKey;
 
 	if (!session) {
 		logger.error("could not find session.");
@@ -534,7 +536,7 @@ var verifyMessage = function(self, session, msg) {
 
 	delete msg.body.__crypto__;
 
-	var message = JSON.stringify(msg.body);
+	let message = JSON.stringify(msg.body);
 	if (utils.hasChineseChar(message)) message = utils.unicodeToUtf8(message);
 
 	return pubKey.verifyString(message, sig);

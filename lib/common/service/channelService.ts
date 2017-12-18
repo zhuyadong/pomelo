@@ -2,9 +2,9 @@ import { constants } from "os";
 import { Component } from "../..";
 import { Application } from "../../application";
 import { ChannelRemote } from "../remote/frontend/channelRemote";
-import { Session } from "inspector";
 import { invokeCallback, size } from "../../util/utils";
 import { createCountDownLatch } from "../../util/countDownLatch";
+import { Session } from "./sessionService";
 
 const logger = require("pomelo-logger").getLogger("pomelo", __filename);
 
