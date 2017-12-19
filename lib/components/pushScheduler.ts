@@ -1,4 +1,4 @@
-import { DirectPushScheduler as DefaultScheduler } from "../pushSchedulers/direct";
+import DefaultScheduler, {DirectPushScheduler} from "../pushSchedulers/direct";
 import {
   Application,
   Scheduler,

@@ -1,3 +1,4 @@
+import pomelo from "../";
 import { ProxyComponent } from "./components/proxy";
 import { MonitorComponent } from "./components/monitor";
 import { MasterComponent } from "./components/master";
@@ -29,6 +30,7 @@ import { SessionComponent } from "./components/session";
 import { DictionaryComponent } from "./components/dictionary";
 import { ProtobufComponent } from "./components/protobuf";
 import { RemoteComponent } from "./components/remote";
+const async = require("async");
 const Logger = require("pomelo-logger");
 const logger = require("pomelo-logger").getLogger("pomelo", __filename);
 
@@ -129,7 +131,7 @@ export interface SchedulerConstructor {
 export type SchedulerMap = { [idx: string]: Scheduler };
 
 export interface Connector extends EventEmitter {
-  new (port: number, host: string, opts: object): Connector;
+  //new (port: number, host: string, opts?:any): T;
   start(cb: Function): void;
   stop(force: boolean, cb: Function): void;
   close?(): void;
@@ -180,6 +182,10 @@ export class Application {
 
   get serverId(): string {
     return this.get(RESERVED.SERVER_ID);
+  }
+
+  getServerId() {
+    return this.serverId;
   }
 
   get serverType(): string {
@@ -255,6 +261,10 @@ export class Application {
 
   get serversFromConfig(): ServerInfoMap {
     return this.get(KEYWORDS.SERVER_MAP);
+  }
+
+  getServersFromConfig() {
+    return this.serversFromConfig;
   }
 
   get backendSessionService() {
@@ -365,16 +375,8 @@ export class Application {
     this.rpcAfter(filter);
   }
 
-  load(name: string, component: Component, opts?: {}) {
-    if (typeof name !== "string") {
-      opts = component;
-      component = name;
-      name = <any>null;
-      if (typeof component.name === "string") {
-        name = component.name;
-      }
-    }
-
+  load(component: Component | Function, opts?: {}) {
+    let name: string = <any>null;
     if (typeof component === "function") {
       component = component(this, opts);
     }
@@ -567,6 +569,7 @@ export class Application {
   import 'path_to/application'
 import { ChannelService } from './common/service/channelService';
 import { SessionComponent } from '../../../gitee/pomelo-ts/pomelo/index';
+import { RESERVED } from './util/constants';
   declare module 'path_to/application' {
     export interface Application {
       get(setting: 'mykey'):SomeType;
@@ -574,7 +577,7 @@ import { SessionComponent } from '../../../gitee/pomelo-ts/pomelo/index';
   }
   */
   get(setting: string): any {
-    return this._settings.get(setting);
+    return this._settings[setting];
   }
 
   enabled(setting: string) {
@@ -979,31 +982,30 @@ import { SessionComponent } from '../../../gitee/pomelo-ts/pomelo/index';
   }
 
   loadDefaultComponents() {
-    let pomelo = require("../pomelo");
     // load system default components
     if (this.serverType === RESERVED.MASTER) {
-      this.load(pomelo.master, this.get("masterConfig"));
+      this.load(<any>pomelo.master, this.get("masterConfig"));
     } else {
-      this.load(pomelo.proxy, this.get("proxyConfig"));
+      this.load(<any>pomelo.proxy, this.get("proxyConfig"));
       if (this.curServer.port) {
-        this.load(pomelo.remote, this.get("remoteConfig"));
+        this.load(<any>pomelo.remote, this.get("remoteConfig"));
       }
       if (this.isFrontend()) {
-        this.load(pomelo.connection, this.get("connectionConfig"));
-        this.load(pomelo.connector, this.get("connectorConfig"));
-        this.load(pomelo.session, this.get("sessionConfig"));
+        this.load(<any>pomelo.connection, this.get("connectionConfig"));
+        this.load(<any>pomelo.connector, this.get("connectorConfig"));
+        this.load(<any>pomelo.session, this.get("sessionConfig"));
         // compatible for schedulerConfig
         if (this.get("schedulerConfig")) {
-          this.load(pomelo.pushScheduler, this.get("schedulerConfig"));
+          this.load(<any>pomelo.pushScheduler, this.get("schedulerConfig"));
         } else {
-          this.load(pomelo.pushScheduler, this.get("pushSchedulerConfig"));
+          this.load(<any>pomelo.pushScheduler, this.get("pushSchedulerConfig"));
         }
       }
-      this.load(pomelo.backendSession, this.get("backendSessionConfig"));
-      this.load(pomelo.channel, this.get("channelConfig"));
-      this.load(pomelo.server, this.get("serverConfig"));
+      this.load(<any>pomelo.backendSession, this.get("backendSessionConfig"));
+      this.load(<any>pomelo.channel, this.get("channelConfig"));
+      this.load(<any>pomelo.server, this.get("serverConfig"));
     }
-    this.load(pomelo.monitor, this.get("monitorConfig"));
+    this.load(<any>pomelo.monitor, this.get("monitorConfig"));
   }
 
   stopComps(comps: any[], index: number, force: boolean, cb?: Function) {
@@ -1023,6 +1025,7 @@ import { SessionComponent } from '../../../gitee/pomelo-ts/pomelo/index';
   }
 
   async optComponents(comps: any[], method: string, cb?: Function) {
+    /*
     async function callCompMethod(comp: any) {
       return new Promise((c, e) => {
         comp[method](c);
@@ -1051,6 +1054,37 @@ import { SessionComponent } from '../../../gitee/pomelo-ts/pomelo/index';
       }
     }
     invokeCallback(cb!);
+    */
+    let i = 0;
+    async.forEachSeries(
+      comps,
+      (comp: any, done: any) => {
+        i++;
+        if (typeof comp[method] === "function") {
+          comp[method](done);
+        } else {
+          done();
+        }
+      },
+      (err: any) => {
+        if (err) {
+          if (typeof err === "string") {
+            logger.error(
+              "fail to operate component, method: %s, err: %j",
+              method,
+              err
+            );
+          } else {
+            logger.error(
+              "fail to operate component, method: %s, err: %j",
+              method,
+              err.stack
+            );
+          }
+        }
+        invokeCallback(cb!, err);
+      }
+    );
   }
 }
 
@@ -1135,3 +1169,6 @@ function addFilter(app: Application, type: string, filter: Filter | RPCFilter) {
   }
   filters.push(filter);
 }
+
+let app = new Application();
+export default app;

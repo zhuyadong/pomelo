@@ -2,6 +2,9 @@ import utils = require("../util/utils");
 import { Application, Scheduler } from "../application";
 import { Session } from "../common/service/sessionService";
 
+export default function(app: Application, opts?: any) {
+  return new DirectPushScheduler(app, opts);
+}
 export class DirectPushScheduler implements Scheduler {
   constructor(readonly app: Application, opts?: any) {}
 

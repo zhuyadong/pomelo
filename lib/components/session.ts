@@ -1,7 +1,6 @@
 import { Component, ISocket } from "../";
 import { Application, Settings } from "../application";
 import { SessionService, Session } from "../common/service/sessionService";
-import { session, server } from "../../../../gitee/pomelo-ts/pomelo/index";
 import { resolveNaptr } from "dns";
 
 export default function(app: Application, opts?: any) {

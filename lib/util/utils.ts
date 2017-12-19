@@ -4,7 +4,7 @@ import { exec } from "child_process";
 import Constants = require("./constants");
 const logger = require("pomelo-logger").getLogger("pomelo", __filename);
 import { Application, ServerInfo } from "../application";
-import pomelo = require("../pomelo");
+import pomelo from "../pomelo";
 
 export function invokeCallback(cb: Function, ...args: any[]) {
   if (typeof cb === "function") {

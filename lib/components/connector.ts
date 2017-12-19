@@ -30,7 +30,7 @@ export interface ConnectorComponentOpts {
 
 export class ConnectorComponent implements Component {
     readonly name:string = '__connector__';
-    private connector:Connector;
+    readonly connector:Connector;
     readonly encode:ConnectorEncodeFunc;
     readonly decode:ConnectorDecodeFunc;
     readonly useCrypto:boolean;
@@ -108,7 +108,7 @@ afterStart(cb?:Function) {
 stop(force:boolean, cb:Function) {
 	if (this.connector) {
 		this.connector.stop(force, cb);
-		delete this.connector;
+		(<any>this.connector) = null;
 		return;
 	} else {
 		process.nextTick(cb);

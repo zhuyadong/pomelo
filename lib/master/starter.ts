@@ -3,7 +3,7 @@ import { RESERVED, PLATFORM, COMMAND } from "../util/constants";
 import { isLocal } from "../util/utils";
 import { format } from "util";
 import os = require("os");
-import pomelo = require("../pomelo");
+import pomelo from "../pomelo";
 import cp = require("child_process");
 
 const logger = require("pomelo-logger").getLogger("pomelo", __filename);

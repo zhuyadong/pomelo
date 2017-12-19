@@ -84,10 +84,11 @@ export class ChannelService implements Component {
     removeAllFromStore(this, genKey(this, name));
   }
 
+  //TODO: 5?
   pushMessageByUids(
-    route: string,
-    msg: any,
-    uids: ChannelMember[],
+    route?: string,
+    msg?: any,
+    uids?: ChannelMember[],
     opts?: any,
     cb?: Function
   ) {
@@ -115,7 +116,7 @@ export class ChannelService implements Component {
       add(record.uid, record.sid, groups);
     }
 
-    sendMessageByGroup(this, route, msg, groups, opts, cb);
+    sendMessageByGroup(this, route!, msg, groups, opts, cb);
   }
 
   broadcast(stype: string, route: string, msg: any, opts?: any, cb?: Function) {
@@ -294,7 +295,8 @@ export class Channel {
     this._channelService.destroyChannel(this.name);
   }
 
-  pushMessage(route:string, msg:any, opts?:any, cb?:Function) {
+  //TODO:4?
+  pushMessage(route?:string, msg?:any, opts?:any, cb?:Function) {
   if(this._state !== State.ST_INITED) {
     invokeCallback(cb!, new Error('channel is not running now'));
     return;
@@ -312,7 +314,7 @@ export class Channel {
     opts = {};
   }
 
-  sendMessageByGroup(this._channelService, route, msg, this.groups, opts, cb);
+  sendMessageByGroup(this._channelService, route!, msg, this.groups, opts, cb);
   }
 }
 

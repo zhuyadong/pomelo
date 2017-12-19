@@ -22,6 +22,7 @@ enum State {
 }
 
 export class Session extends EventEmitter {
+  __timeout__?:number;
   protected _state: State;
   protected _settings: Settings;
   protected _uid: string;

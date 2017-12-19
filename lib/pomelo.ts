@@ -1,27 +1,162 @@
+import HybridConnector from "./connectors/hybridconnector";
 import { EventEmitter } from "events";
 import fs = require("fs");
 import path = require("path");
-import { Application } from "./application";
+import { Application, Filter } from "./application";
 import events from "./util/events";
 import { Socket } from "net";
-import { BackendSessionService } from "./common/service/backendSessionService";
-import { ChannelService } from "./common/service/channelService";
-import { ConnectionComponent } from "./components/connection";
-import { ConnectorComponent } from "./components/connector";
-import { DictionaryComponent } from "./components/dictionary";
-import { MasterComponent } from "./components/master";
-import { MonitorComponent } from "./components/monitor";
-import { ProtobufComponent } from "./components/protobuf";
-import { ProxyComponent } from "./components/proxy";
-import { PushSchedulerComponent } from "./components/pushScheduler";
-import { ServerComponent } from "./components/server";
-import { SessionComponent } from "./components/session";
-import { RemoteComponent } from "./components/remote";
+import backendSessionCtor, { BackendSessionService } from "./components/backendSession";
+import channelCtor, {
+  ChannelService,
+  ChannelServiceOpts
+} from "./components/channel";
+import connectionCtor, { ConnectionComponent } from "./components/connection";
+import connectorCtor, { ConnectorComponent } from "./components/connector";
+import dictionaryCtor, { DictionaryComponent } from "./components/dictionary";
+import masterCtor, { MasterComponent } from "./components/master";
+import monitorCtor, { MonitorComponent } from "./components/monitor";
+import protobufCtor, { ProtobufComponent } from "./components/protobuf";
+import proxyCtor, { ProxyComponent } from "./components/proxy";
+import pushSchedulerCtor, { PushSchedulerComponent } from "./components/pushScheduler";
+import serverCtor, { ServerComponent } from "./components/server";
+import sessionCtor, { SessionComponent } from "./components/session";
+import remoteCtor, { RemoteComponent } from "./components/remote";
+import timeoutCtor, {TimeoutFilter} from "./filters/handler/timeout";
 export { events };
+import app from "./application";
 const Package = require("../package");
 
-export const app: Application = Application.instance;
-export const version: string = Package.version;
+export class Pomelo {
+  readonly version: string = Package.version;
+  private _components: PomeloComponents;
+  private _filters: PomeloFilters;
+  private _rpcFilters: PomeloRPCFilters;
+  private _connectors: PomeloConnectors;
+  private _pushSchedulers: PomeloPushSchedulers;
+  constructor(readonly app: Application) {
+    this._components = {} as PomeloComponents;
+    this._filters = {} as PomeloFilters;
+    this._rpcFilters = {} as PomeloRPCFilters;
+    this._connectors = {} as PomeloConnectors;
+    this._pushSchedulers = {} as PomeloPushSchedulers;
+
+    fs.readdirSync(__dirname + "/components").forEach(filename => {
+      if (!/\.js$/.test(filename)) {
+        return;
+      }
+      let name = path.basename(filename, ".js");
+      let _load = load.bind(null, "./components/", name);
+
+      (<any>this._components).__defineGetter__(name, _load);
+      //(<any>this).__defineGetter__(name, _load);
+    });
+    fs.readdirSync(__dirname + "/filters/handler").forEach(filename => {
+      if (!/\.js$/.test(filename)) {
+        return;
+      }
+      let name = path.basename(filename, ".js");
+      let _load = load.bind(null, "./filters/handler/", name);
+
+      (<any>this._filters).__defineGetter__(name, _load);
+      //module.exports.__defineGetter__(name, _load);
+    });
+    fs.readdirSync(__dirname + "/filters/rpc").forEach(filename => {
+      if (!/\.js$/.test(filename)) {
+        return;
+      }
+      let name = path.basename(filename, ".js");
+      let _load = load.bind(null, "./filters/rpc/", name);
+
+      (<any>this._rpcFilters).__defineGetter__(name, _load);
+    });
+    (<any>this._connectors).__defineGetter__(
+      "sioconnector",
+      load.bind(null, "./connectors/sioconnector")
+    );
+    (<any>this._connectors).__defineGetter__(
+      "hybridconnector",
+      load.bind(null, "./connectors/hybridconnector")
+    );
+    (<any>this._connectors).__defineGetter__(
+      "udpconnector",
+      load.bind(null, "./connectors/udpconnector")
+    );
+    (<any>this._connectors).__defineGetter__(
+      "mqttconnector",
+      load.bind(null, "./connectors/mqttconnector")
+    );
+    (<any>this._pushSchedulers).__defineGetter__(
+      "direct",
+      load.bind(null, "./pushSchedulers/direct")
+    );
+    (<any>this._pushSchedulers).__defineGetter__(
+      "buffer",
+      load.bind(null, "./pushSchedulers/buffer")
+    );
+  }
+
+  createApp(opts?: any) {
+    app.init(opts);
+    return app;
+  }
+
+  get components() {
+      return this._components as Readonly<PomeloComponents>;
+  }
+
+  get connectors() {
+      return this._connectors as Readonly<PomeloConnectors>;
+  }
+  get filters() {
+      return this._filters as Readonly<PomeloFilters>;
+  }
+  get rpcFilters() {
+      return this._rpcFilters as Readonly<PomeloRPCFilters>;
+  }
+
+  get backendSession() {
+      return backendSessionCtor;
+  }
+  get channel() {
+      return channelCtor;
+  }
+  get connection() {
+      return connectionCtor;
+  }
+  get connector() {
+      return connectorCtor;
+  }
+  get dictionary() {
+      return dictionaryCtor;
+  }
+  get master() {
+      return masterCtor;
+  }
+  get monitor() {
+      return monitorCtor;
+  }
+  get protobuf() {
+      return protobufCtor;
+  }
+  get proxy() {
+      return proxyCtor;
+  }
+  get pushScheduler() {
+      return pushSchedulerCtor;
+  }
+  get remote() {
+      return remoteCtor;
+  }
+  get server() {
+      return serverCtor;
+  }
+  get session() {
+      return sessionCtor;
+  }
+  get timeout() {
+      return timeoutCtor;
+  }
+}
 
 export interface RemoteAddress {
   ip: string;
@@ -55,97 +190,15 @@ export interface PomeloComponents {
   readonly session: (app: Application, opts?: object) => SessionComponent;
 }
 
-export const components = {} as Readonly<PomeloComponents>;
-
 export interface PomeloFilters {}
-
-export const filters = {} as Readonly<PomeloFilters>;
 
 export interface PomeloRPCFilters {}
 
-export const rpcFilters = {} as Readonly<PomeloRPCFilters>;
-
-export interface PomeloConnectors {}
-
-export const connectors = {} as Readonly<PomeloConnectors>;
-(<any>connectors).__defineGetter__(
-  "sioconnector",
-  load.bind(null, "./connectors/sioconnector")
-);
-(<any>connectors).__defineGetter__(
-  "hybridconnector",
-  load.bind(null, "./connectors/hybridconnector")
-);
-(<any>connectors).__defineGetter__(
-  "udpconnector",
-  load.bind(null, "./connectors/udpconnector")
-);
-(<any>connectors).__defineGetter__(
-  "mqttconnector",
-  load.bind(null, "./connectors/mqttconnector")
-);
-
-export interface PomeloPushSchedulers {}
-export const pushSchedulers = {} as Readonly<PomeloPushSchedulers>;
-(<any>pushSchedulers).__defineGetter__(
-  "direct",
-  load.bind(null, "./pushSchedulers/direct")
-);
-(<any>pushSchedulers).__defineGetter__(
-  "buffer",
-  load.bind(null, "./pushSchedulers/buffer")
-);
-
-export function createApp(opts?: any) {
-  app.init(opts);
-  return app;
+export interface PomeloConnectors {
+  hybridconnector: HybridConnector;
 }
 
-fs.readdirSync(__dirname + "/components").forEach(filename => {
-  if (!/\.js$/.test(filename)) {
-    return;
-  }
-  let name = path.basename(filename, ".js");
-  let _load = load.bind(null, "./components/", name);
-
-  (<any>components).__defineGetter__(name, _load);
-  module.exports.__defineGetter__(name, _load);
-});
-
-declare const backendSession: BackendSessionService;
-declare const channel: ChannelService;
-declare const connection: ConnectionComponent;
-declare const connector: ConnectorComponent;
-declare const dictionary: DictionaryComponent;
-declare const master: MasterComponent;
-declare const monitor: MonitorComponent;
-declare const protobuf: ProtobufComponent;
-declare const proxy: ProxyComponent;
-declare const pushScheduler: PushSchedulerComponent;
-declare const remote: RemoteComponent;
-declare const server: ServerComponent;
-declare const session: SessionComponent;
-
-fs.readdirSync(__dirname + "/filters/handler").forEach(filename => {
-  if (!/\.js$/.test(filename)) {
-    return;
-  }
-  let name = path.basename(filename, ".js");
-  let _load = load.bind(null, "./filters/handler/", name);
-
-  (<any>filters).__defineGetter__(name, _load);
-  module.exports.__defineGetter__(name, _load);
-});
-
-fs.readdirSync(__dirname + "/filters/rpc").forEach(filename => {
-  if (!/\.js$/.test(filename)) {
-    return;
-  }
-  let name = path.basename(filename, ".js");
-  let _load = load.bind(null, "./filters/rpc/", name);
-
-  (<any>rpcFilters).__defineGetter__(name, _load);
-});
+export interface PomeloPushSchedulers {}
 
 function load(path: string, name: string) {
   if (name) {
@@ -153,3 +206,6 @@ function load(path: string, name: string) {
   }
   return require(path);
 }
+
+let pomelo = new Pomelo(app);
+export default pomelo;
