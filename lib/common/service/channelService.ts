@@ -134,7 +134,7 @@ export class ChannelService implements Component {
     let count = servers.length;
     let successFlag = false;
 
-    let latch = createCountDownLatch(count, null, () => {
+    let latch = createCountDownLatch(count, {}, () => {
       if (!successFlag) {
         invokeCallback(cb!, new Error("broadcast fails"));
         return;

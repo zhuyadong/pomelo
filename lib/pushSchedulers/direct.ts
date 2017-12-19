@@ -9,7 +9,7 @@ export class DirectPushScheduler implements Scheduler {
     reqId: number,
     route: string,
     msg: any,
-    recvs: string[],
+    recvs: number[],
     opts: any,
     cb?: Function
   ) {
@@ -56,7 +56,7 @@ export class DirectPushScheduler implements Scheduler {
     }
   }
 
-  doBatchPush(msg: any, recvs: string[]) {
+  doBatchPush(msg: any, recvs: number[]) {
     let sessionService = this.app.get("sessionService");
     for (let i = 0, l = recvs.length; i < l; i++) {
       sessionService.sendMessage(recvs[i], msg);

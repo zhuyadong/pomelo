@@ -5,7 +5,7 @@ export class CountDownLatch {
     opts: { timeout?: number },
     private cb: Function
   ) {
-    if (opts.timeout) {
+    if (opts!.timeout) {
       this.timerId = setTimeout(() => {
         this.cb(true);
       }, opts.timeout);
@@ -29,7 +29,7 @@ export class CountDownLatch {
 
 export function createCountDownLatch(
   count: number,
-  opts: { timeout?: number } | null | undefined,
+  opts: { timeout?: number },
   cb: Function
 ) {
   if (!count || count <= 0) {
