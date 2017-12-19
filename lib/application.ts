@@ -1,10 +1,21 @@
-import { PushSchedulerComponent } from './components/pushScheduler';
+import { ProxyComponent } from "./components/proxy";
+import { MonitorComponent } from "./components/monitor";
+import { MasterComponent } from "./components/master";
+import { ConnectorComponent } from "./components/connector";
+import { PushSchedulerComponent } from "./components/pushScheduler";
 import { ConnectionComponent } from "./components/connection";
 import { BackendSessionService } from "./common/service/backendSessionService";
-import process = require('process');
-import path = require('path');
-import fs = require('fs');
-import { FILEPATH, KEYWORDS, RESERVED, LIFECYCLE, DIR } from "./util/constants";
+import process = require("process");
+import path = require("path");
+import fs = require("fs");
+import {
+  FILEPATH,
+  KEYWORDS,
+  RESERVED,
+  LIFECYCLE,
+  DIR,
+  TIME
+} from "./util/constants";
 import { EventEmitter } from "events";
 import { Session } from "./common/service/sessionService";
 import { events } from "./pomelo";
@@ -12,9 +23,12 @@ import { invokeCallback } from "./util/utils";
 import { runServers } from "./master/starter";
 import { ChannelService } from "./common/service/channelService";
 import { watch } from "fs";
-import appManager = require('./common/manager/appManager');
+import appManager = require("./common/manager/appManager");
 import { ServerComponent } from "./components/server";
 import { SessionComponent } from "./components/session";
+import { DictionaryComponent } from "./components/dictionary";
+import { ProtobufComponent } from "./components/protobuf";
+import { RemoteComponent } from "./components/remote";
 const Logger = require("pomelo-logger");
 const logger = require("pomelo-logger").getLogger("pomelo", __filename);
 
@@ -97,8 +111,8 @@ export interface Component {
 }
 
 export interface Scheduler {
-  start?(cb?:Function):void;
-  stop?(cb?:Function):void;
+  start?(cb?: Function): void;
+  stop?(cb?: Function): void;
   schedule(
     reqId: number,
     route: string,
@@ -109,10 +123,10 @@ export interface Scheduler {
   ): void;
 }
 export interface SchedulerConstructor {
-  (...args:any[]):Scheduler;
+  (...args: any[]): Scheduler;
 }
 
-export type SchedulerMap = {[idx:string]:Scheduler};
+export type SchedulerMap = { [idx: string]: Scheduler };
 
 export interface Connector extends EventEmitter {
   new (port: number, host: string, opts: object): Connector;
@@ -137,21 +151,29 @@ export type ConnectorDecodeFunc = (
 export type Blacklist = (RegExp | string)[];
 export type BlacklistFunc = (cb: (err: any, list: Blacklist) => void) => void;
 
-interface AppComponents {
+export interface AppComponents {
   __backendSession__: BackendSessionService;
+  __channel__: ChannelService;
+  __connection__: ConnectionComponent;
+  __connector__: ConnectorComponent;
+  __dictionary__: DictionaryComponent;
+  __master__: MasterComponent;
+  __monitor__: MonitorComponent;
+  __protobuf__: ProtobufComponent;
+  __proxy__: ProxyComponent;
+  __pushScheduler__: PushSchedulerComponent;
+  __remote__: RemoteComponent;
   __server__: ServerComponent;
   __session__: SessionComponent;
-  __connection__: ConnectionComponent;
-  __pushScheduler__: PushSchedulerComponent;
   [idx: string]: Component;
 }
 
 export class Application {
   readonly event: EventEmitter;
-  rpcInvoke: RPCInvokeFunc;
   sysrpc: any; //TODO:pomelo-rpc
 
   private _components: AppComponents;
+  private _stopTimer: any;
   get components(): Readonly<AppComponents> {
     return this._components;
   }
@@ -241,6 +263,10 @@ export class Application {
 
   get channelService() {
     return this.get("channelService");
+  }
+
+  get rpcInvoke() {
+    return this.get("rpcInvoke"); //TODO
   }
 
   private static _instance: Application;
@@ -455,9 +481,67 @@ export class Application {
     });
   }
 
-  afterStart(cb: Function) {}
+  afterStart(cb: Function) {
+    if (this._state !== State.STATE_START) {
+      invokeCallback(cb, new Error("application is not running now."));
+      return;
+    }
 
-  stop(force?: boolean) {}
+    let afterFun = this.lifecycleCbs[LIFECYCLE.AFTER_STARTUP];
+    this.optComponents(this._loaded, RESERVED.AFTER_START, (err: any) => {
+      this._state = State.STATE_STARTED;
+      let id = this.serverId;
+      if (!err) {
+        logger.info("%j finish start", id);
+      }
+      if (!!afterFun) {
+        afterFun.call(null, this, function() {
+          invokeCallback(cb, err);
+        });
+      } else {
+        invokeCallback(cb, err);
+      }
+      let usedTime = Date.now() - this.startTime;
+      logger.info("%j startup in %s ms", id, usedTime);
+      this.event.emit(events.START_SERVER, id);
+    });
+  }
+
+  stop(force?: boolean) {
+    if (this._state > State.STATE_STARTED) {
+      logger.warn("[pomelo application] application is not running now.");
+      return;
+    }
+    this._state = State.STATE_STOPED;
+    let self = this;
+
+    this._stopTimer = setTimeout(() => {
+      process.exit(0);
+    }, TIME.TIME_WAIT_STOP);
+
+    let cancelShutDownTimer = () => {
+      if (!!self._stopTimer) {
+        clearTimeout(self._stopTimer);
+      }
+    };
+    let shutDown = () => {
+      this.stopComps(self._loaded, 0, force!, () => {
+        cancelShutDownTimer();
+        if (force) {
+          process.exit(0);
+        }
+      });
+    };
+    let fun = this.get(KEYWORDS.BEFORE_STOP_HOOK);
+    let stopFun = this.lifecycleCbs[LIFECYCLE.BEFORE_SHUTDOWN];
+    if (!!stopFun) {
+      stopFun.call(null, this, shutDown, cancelShutDownTimer);
+    } else if (!!fun) {
+      invokeCallback(fun, self, shutDown, cancelShutDownTimer);
+    } else {
+      shutDown();
+    }
+  }
 
   set(setting: string, val: any) {
     this._settings[setting] = val;
@@ -565,7 +649,6 @@ import { SessionComponent } from '../../../gitee/pomelo-ts/pomelo/index';
       return;
     }
 
-    let self = this;
     opts = opts || {};
     let dir = path.dirname(plugin.components);
 
@@ -574,7 +657,7 @@ import { SessionComponent } from '../../../gitee/pomelo-ts/pomelo/index';
       return;
     }
 
-    fs.readdirSync(plugin.components).forEach(function(filename) {
+    fs.readdirSync(plugin.components).forEach(filename => {
       if (!/\.js$/.test(filename)) {
         return;
       }
@@ -584,7 +667,7 @@ import { SessionComponent } from '../../../gitee/pomelo-ts/pomelo/index';
       if (!fs.existsSync(absolutePath)) {
         logger.error("component %s not exist at %s", name, absolutePath);
       } else {
-        self.load(require(absolutePath), param);
+        this.load(require(absolutePath), param);
       }
     });
 
@@ -597,7 +680,7 @@ import { SessionComponent } from '../../../gitee/pomelo-ts/pomelo/index';
         return;
       }
 
-      fs.readdirSync(plugin.events).forEach(function(filename) {
+      fs.readdirSync(plugin.events).forEach(filename => {
         if (!/\.js$/.test(filename)) {
           return;
         }
@@ -605,7 +688,7 @@ import { SessionComponent } from '../../../gitee/pomelo-ts/pomelo/index';
         if (!fs.existsSync(absolutePath)) {
           logger.error("events %s not exist at %s", filename, absolutePath);
         } else {
-          bindEvents(require(absolutePath), self);
+          bindEvents(require(absolutePath), this);
         }
       });
     }
