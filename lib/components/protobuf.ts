@@ -118,7 +118,7 @@ export class ProtobufComponent implements Component {
     }
 
     let self = this;
-    fs.readFile(path, "utf8", function(err, data) {
+    fs.readFile(path, "utf8", (err, data) => {
       try {
         let os = protobuf.parse(JSON.parse(data));
         if (type === RESERVED.SERVER) {

@@ -1,4 +1,3 @@
-import pomelo from "../";
 import { ProxyComponent } from "./components/proxy";
 import { MonitorComponent } from "./components/monitor";
 import { MasterComponent } from "./components/master";
@@ -18,7 +17,7 @@ import {
   TIME
 } from "./util/constants";
 import { EventEmitter } from "events";
-import { Session } from "./common/service/sessionService";
+import { Session, SessionService } from "./common/service/sessionService";
 import { events } from "./pomelo";
 import { invokeCallback } from "./util/utils";
 import { runServers } from "./master/starter";
@@ -170,13 +169,13 @@ export interface AppComponents {
   [idx: string]: Component;
 }
 
-export class Application {
+export default class Application {
   readonly event: EventEmitter;
   sysrpc: any; //TODO:pomelo-rpc
 
   private _components: AppComponents;
   private _stopTimer: any;
-  get components(): Readonly<AppComponents> {
+  get components(): Readonly<AppComponents>{
     return this._components;
   }
 
@@ -564,6 +563,7 @@ export class Application {
   get(key: "channelService"): ChannelService;
   get(key: "backendSessionService"): BackendSessionService;
   get(key: "__modules__"): ModuleInfoMap;
+  get(key: "sessionService"): SessionService;
   get(key: string): any;
   /* 如果要给Applicatoin.get加上新的key，可以在需要的地方如下这样merge进入Application:
   import 'path_to/application'
@@ -982,6 +982,7 @@ import { RESERVED } from './util/constants';
   }
 
   loadDefaultComponents() {
+    let pomelo = require('./pomelo').default;
     // load system default components
     if (this.serverType === RESERVED.MASTER) {
       this.load(<any>pomelo.master, this.get("masterConfig"));
@@ -1024,7 +1025,7 @@ import { RESERVED } from './util/constants';
     }
   }
 
-  async optComponents(comps: any[], method: string, cb?: Function) {
+  optComponents(comps: any[], method: string, cb?: Function) {
     /*
     async function callCompMethod(comp: any) {
       return new Promise((c, e) => {
@@ -1170,5 +1171,4 @@ function addFilter(app: Application, type: string, filter: Filter | RPCFilter) {
   filters.push(filter);
 }
 
-let app = new Application();
-export default app;
+export {Application};

@@ -44,3 +44,5 @@ export default class WSProcessor extends EventEmitter {
     delete this.httpServer;
   }
 }
+
+export { WSProcessor };

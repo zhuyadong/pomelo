@@ -1,16 +1,15 @@
 import net = require("net");
 import tls = require("tls");
 import util = require("util");
-import { Connector } from "../application";
+import { Connector, Application } from '../application';
 import { EventEmitter } from "events";
-import { Application } from "../../index";
 import { ConnectorComponent } from "../components/connector";
 import { DictionaryComponent } from "../components/dictionary";
 import { ProtobufComponent } from "../components/protobuf";
 import { Session } from "../common/service/sessionService";
+import HybridSocket from "./hybridsocket";
+import Switcher from "./hybrid/switcher";
 
-const HybridSocket = require("./hybridsocket");
-const Switcher = require("./hybrid/switcher");
 const Handshake = require("./commands/handshake");
 const Heartbeat = require("./commands/heartbeat");
 const Kick = require("./commands/kick");
@@ -37,6 +36,9 @@ export default class HybridConnector extends EventEmitter implements Connector {
   private listeningServer: net.Server;
   constructor(private port: number, private host: string, private opts?: any) {
     super();
+    if (!(this instanceof HybridConnector)) {
+      return new HybridConnector(port, host, opts);
+    }
     this.opts = opts || {};
     this.port = port;
     this.host = host;
@@ -51,7 +53,9 @@ export default class HybridConnector extends EventEmitter implements Connector {
   }
 
   start(cb: Function) {
-    let app = require("../pomelo").app as Application;
+    let pomelo = require('../pomelo');
+    let app = pomelo.default.app as Application;
+    //let app = require("../pomelo").default.app as Application;
 
     let gensocket = (socket: any) => {
       let hybridsocket = new HybridSocket(curId++, socket);

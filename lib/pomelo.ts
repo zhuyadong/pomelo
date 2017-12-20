@@ -2,10 +2,12 @@ import HybridConnector from "./connectors/hybridconnector";
 import { EventEmitter } from "events";
 import fs = require("fs");
 import path = require("path");
-import { Application, Filter } from "./application";
+import Application, { Filter } from "./application";
 import events from "./util/events";
 import { Socket } from "net";
-import backendSessionCtor, { BackendSessionService } from "./components/backendSession";
+import backendSessionCtor, {
+  BackendSessionService
+} from "./components/backendSession";
 import channelCtor, {
   ChannelService,
   ChannelServiceOpts
@@ -17,13 +19,16 @@ import masterCtor, { MasterComponent } from "./components/master";
 import monitorCtor, { MonitorComponent } from "./components/monitor";
 import protobufCtor, { ProtobufComponent } from "./components/protobuf";
 import proxyCtor, { ProxyComponent } from "./components/proxy";
-import pushSchedulerCtor, { PushSchedulerComponent } from "./components/pushScheduler";
+import pushSchedulerCtor, {
+  PushSchedulerComponent
+} from "./components/pushScheduler";
 import serverCtor, { ServerComponent } from "./components/server";
 import sessionCtor, { SessionComponent } from "./components/session";
 import remoteCtor, { RemoteComponent } from "./components/remote";
-import timeoutCtor, {TimeoutFilter} from "./filters/handler/timeout";
+import timeoutCtor, { TimeoutFilter } from "./filters/handler/timeout";
 export { events };
 import app from "./application";
+import SioConnector from './connectors/sioconnector';
 const Package = require("../package");
 
 export class Pomelo {
@@ -33,7 +38,7 @@ export class Pomelo {
   private _rpcFilters: PomeloRPCFilters;
   private _connectors: PomeloConnectors;
   private _pushSchedulers: PomeloPushSchedulers;
-  constructor(readonly app: Application) {
+  constructor() {
     this._components = {} as PomeloComponents;
     this._filters = {} as PomeloFilters;
     this._rpcFilters = {} as PomeloRPCFilters;
@@ -95,66 +100,70 @@ export class Pomelo {
     );
   }
 
+  get app() {
+      return Application.instance;
+  }
+
   createApp(opts?: any) {
-    app.init(opts);
-    return app;
+    this.app.init(opts);
+    return this.app;
   }
 
   get components() {
-      return this._components as Readonly<PomeloComponents>;
+    return this._components as Readonly<PomeloComponents>;
   }
 
   get connectors() {
-      return this._connectors as Readonly<PomeloConnectors>;
+    return this._connectors as Readonly<PomeloConnectors>;
   }
   get filters() {
-      return this._filters as Readonly<PomeloFilters>;
+    return this._filters as Readonly<PomeloFilters>;
   }
   get rpcFilters() {
-      return this._rpcFilters as Readonly<PomeloRPCFilters>;
+    return this._rpcFilters as Readonly<PomeloRPCFilters>;
   }
 
   get backendSession() {
-      return backendSessionCtor;
+    return backendSessionCtor;
   }
   get channel() {
-      return channelCtor;
+    return channelCtor;
   }
   get connection() {
-      return connectionCtor;
+    return connectionCtor;
   }
   get connector() {
-      return connectorCtor;
+    return connectorCtor;
   }
   get dictionary() {
-      return dictionaryCtor;
+    return dictionaryCtor;
   }
   get master() {
-      return masterCtor;
+    return masterCtor;
   }
   get monitor() {
-      return monitorCtor;
+    return monitorCtor;
   }
   get protobuf() {
-      return protobufCtor;
+    return protobufCtor;
   }
   get proxy() {
-      return proxyCtor;
+    return proxyCtor;
   }
   get pushScheduler() {
-      return pushSchedulerCtor;
+    return pushSchedulerCtor;
   }
   get remote() {
-      return remoteCtor;
+    return remoteCtor;
   }
   get server() {
-      return serverCtor;
+    return serverCtor;
   }
   get session() {
-      return sessionCtor;
+    return sessionCtor;
   }
   get timeout() {
-      return timeoutCtor;
+    return timeoutCtor;
   }
 }
 
@@ -196,16 +205,20 @@ export interface PomeloRPCFilters {}
 
 export interface PomeloConnectors {
   hybridconnector: HybridConnector;
+  sioconnector:SioConnector;
 }
 
 export interface PomeloPushSchedulers {}
 
 function load(path: string, name: string) {
+  let mod:any;
   if (name) {
-    return require(path + name);
+    mod = require(path + name).default;
+  } else {
+    mod = require(path).default;
   }
-  return require(path);
+  return mod;
 }
 
-let pomelo = new Pomelo(app);
+let pomelo = new Pomelo();
 export default pomelo;

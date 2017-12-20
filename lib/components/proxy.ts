@@ -63,10 +63,10 @@ export class ProxyComponent implements Component {
 
   afterStart(cb: Function) {
     let self = this;
-    (<any>this.app).__defineGetter__("rpc", function() {
+    (<any>this.app).__defineGetter__("rpc", () => {
       return self.client.proxies.user;
     });
-    (<any>this.app).__defineGetter__("sysrpc", function() {
+    (<any>this.app).__defineGetter__("sysrpc", () => {
       return self.client.proxies.sys;
     });
     this.app.set("rpcInvoke", this.client.rpcInvoke.bind(this.client));

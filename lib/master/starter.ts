@@ -151,7 +151,7 @@ function spawnProcess(
     child = cp.spawn(command, options);
     var prefix = command === COMMAND.SSH ? "[" + host + "] " : "";
 
-    child.stderr.on("data", function(chunk) {
+    child.stderr.on("data", chunk => {
       var msg = chunk.toString();
       process.stderr.write(msg);
       if (!!cb) {
@@ -159,7 +159,7 @@ function spawnProcess(
       }
     });
 
-    child.stdout.on("data", function(chunk) {
+    child.stdout.on("data", chunk => {
       var msg = prefix + chunk.toString();
       process.stdout.write(msg);
     });
@@ -168,7 +168,7 @@ function spawnProcess(
     child.unref();
   }
 
-  child.on("exit", function(code) {
+  child.on("exit", code => {
     if (code !== 0) {
       logger.warn(
         "child process exit with error, error code: %s, executed command: %s",

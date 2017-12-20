@@ -1,6 +1,6 @@
 import { Filter } from "../../application";
 const logger = require("pomelo-logger").getLogger("pomelo", __filename);
-import utils = require('../../util/utils');
+import utils = require("../../util/utils");
 import { Session } from "../../common/service/sessionService";
 
 const DEFAULT_TIMEOUT = 3000;
@@ -17,7 +17,7 @@ export class TimeoutFilter implements Filter {
     this.curId = 0;
     this.timeouts = {};
   }
-  before(msg:any, session:Session, next:Function) {
+  before(msg: any, session: Session, next: Function) {
     var count = utils.size(this.timeouts);
     if (count > this.maxSize) {
       logger.warn(
@@ -29,14 +29,14 @@ export class TimeoutFilter implements Filter {
       return;
     }
     this.curId++;
-    this.timeouts[this.curId] = setTimeout(function() {
+    this.timeouts[this.curId] = setTimeout(() => {
       logger.error("request %j timeout.", msg.__route__);
     }, this.timeout);
     session.__timeout__ = this.curId;
     next();
   }
 
-  after(err:any, msg:any, session:Session, resp:any, next:Function) {
+  after(err: any, msg: any, session: Session, resp: any, next: Function) {
     var timeout = this.timeouts[session.__timeout__!];
     if (timeout) {
       clearTimeout(timeout);

@@ -8,12 +8,7 @@ const logger = require("pomelo-logger").getLogger("pomelo", __filename);
 export type SidSessionMap = { [idx: string]: Session };
 export type UidSessionsMap = { [idx: string]: Session[] };
 
-const FRONTEND_SESSION_FIELDS = [
-  "id",
-  "frontendId",
-  "uid",
-  "__sessionService__"
-];
+const FRONTEND_SESSION_FIELDS = ["id", "frontendId", "uid", "sessionService"];
 const EXPORTED_SESSION_FIELDS = ["id", "frontendId", "uid", "settings"];
 
 enum State {
@@ -22,7 +17,7 @@ enum State {
 }
 
 export class Session extends EventEmitter {
-  __timeout__?:number;
+  __timeout__?: number;
   protected _state: State;
   protected _settings: Settings;
   protected _uid: string;
@@ -39,11 +34,18 @@ export class Session extends EventEmitter {
   get uid() {
     return this._uid;
   }
+  set uid(val: string) {
+    this._uid = val;
+  }
+
   get socket() {
     return this._socket;
   }
   get sessionService() {
     return this._sessionService;
+  }
+  set sessionService(val: SessionService) {
+    this._sessionService = val;
   }
   get settings(): Readonly<Settings> {
     return this._settings;
@@ -102,7 +104,7 @@ export class Session extends EventEmitter {
     let self = this;
     // give a chance to send disconnect message to client
 
-    process.nextTick(function() {
+    process.nextTick(() => {
       self._socket.disconnect();
     });
   }
@@ -195,7 +197,7 @@ export class SessionService {
     const session = this._sessions[sid];
 
     if (!session) {
-      process.nextTick(function() {
+      process.nextTick(() => {
         cb(new Error("session does not exist, sid: " + sid));
       });
       return;
@@ -209,7 +211,7 @@ export class SessionService {
       }
 
       // already bound with other uid
-      process.nextTick(function() {
+      process.nextTick(() => {
         cb(new Error("session has already bind with " + session.uid));
       });
       return;
@@ -218,7 +220,7 @@ export class SessionService {
     let sessions = this.uidMap[uid];
 
     if (this.singleSession && !!sessions) {
-      process.nextTick(function() {
+      process.nextTick(() => {
         cb(
           new Error(
             "singleSession is enabled, and session has already bind with uid: " +
@@ -253,14 +255,14 @@ export class SessionService {
     const session = this.sessions[sid];
 
     if (!session) {
-      process.nextTick(function() {
+      process.nextTick(() => {
         cb(new Error("session does not exist, sid: " + sid));
       });
       return;
     }
 
     if (!session.uid || session.uid !== uid) {
-      process.nextTick(function() {
+      process.nextTick(() => {
         cb(new Error("session has not bind with " + session.uid));
       });
       return;

@@ -5,7 +5,7 @@ const DEFAULT_FLUSH_INTERVAL = 20;
 
 export class BufferPushScheduler {
   private flushInterval: number;
-  private sessions: { [idx: string]: any };
+  private sessions: { [idx: number]: any };
   private tid: any;
   constructor(readonly app: Application, opts?: any) {
     this.flushInterval = opts.flushInterval || DEFAULT_FLUSH_INTERVAL;
@@ -33,7 +33,7 @@ export class BufferPushScheduler {
     reqId: number,
     route: string,
     msg: any,
-    recvs: string[],
+    recvs: number[],
     opts: any,
     cb?: Function
   ) {
@@ -78,7 +78,7 @@ export class BufferPushScheduler {
     }
   }
 
-  protected doBatchPush(msg: any, recvs: string[]) {
+  protected doBatchPush(msg: any, recvs: number[]) {
     let sessionService = this.app.get("sessionService");
     let session;
     for (let i = 0, l = recvs.length; i < l; i++) {
@@ -107,7 +107,7 @@ export class BufferPushScheduler {
     let sessionService = this.app.get("sessionService");
     let queue, session;
     for (let sid in this.sessions) {
-      session = sessionService.get(sid);
+      session = sessionService.get(<any>sid);
       if (!session) {
         continue;
       }
