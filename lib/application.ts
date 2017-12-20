@@ -57,9 +57,13 @@ export interface Module {
   start(cb?: Function): void;
 }
 
+export interface ModuleConstructor {
+  (...args:any[]):Module;
+}
+
 export interface ModuleInfo {
   moduleId: string;
-  module: Module | Function;
+  module: Module | ModuleConstructor;
   opts: any;
 }
 
@@ -617,11 +621,11 @@ import { RESERVED } from './util/constants';
   }
 
   registerAdmin(
-    moduleId: string | Module | Function,
+    moduleId: string,
     module?: Module | Function | any,
     opts?: any
   ) {
-    let modules = this.get(KEYWORDS.MODULE);
+    let modules:ModuleInfoMap = this.get(KEYWORDS.MODULE);
     if (!modules) {
       modules = {};
       this.set(KEYWORDS.MODULE, modules);

@@ -3,35 +3,36 @@ let admin = require("pomelo-admin");
 import utils = require("./utils");
 import pathUtil = require("./pathUtil");
 import starter = require("../master/starter");
-import { Component, Module } from "../application";
+import { Component, Module, ModuleInfoMap } from '../application';
 import { KEYWORDS, PLATFORM } from "./constants";
 import { Application } from "../index";
+import { ModuleInfo } from "../../index";
 let logger = require("pomelo-logger").getLogger("pomelo", __filename);
 
 //TODO:self & consoleService types
 export function loadModules(self: any, consoleService: any) {
   // load app register modules
-  let _modules = self.app!.get(KEYWORDS.MODULE);
+  let _modules : ModuleInfoMap = self.app!.get(KEYWORDS.MODULE);
 
   if (!_modules) {
     return;
   }
 
-  let modules = [];
+  let modules :ModuleInfo[] = [];
   for (let m in _modules) {
     modules.push(_modules[m]);
   }
 
-  let record, moduleId, module;
   for (let i = 0, l = modules.length; i < l; i++) {
-    record = modules[i];
+    let module : Module;
+    let record = modules[i];
     if (typeof record.module === "function") {
       module = record.module(record.opts, consoleService);
     } else {
       module = record.module;
     }
 
-    moduleId = record.moduleId || module.moduleId;
+    let moduleId = record.moduleId || module.moduleId;
 
     if (!moduleId) {
       logger.warn("ignore an unknown module.");
