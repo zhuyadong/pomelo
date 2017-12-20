@@ -335,7 +335,6 @@ function getSession(self: ConnectorComponent, socket: ISocket) {
   );
 
   // bind events for session
-  console.log(socket);
   socket.on("disconnect", session.closed.bind(session));
   socket.on("error", session.closed.bind(session));
   session.on("closed", onSessionClose.bind(null, app));
