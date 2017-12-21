@@ -101,11 +101,8 @@ export class Session extends EventEmitter {
     this.emit("closed", this.toFrontendSession(), reason);
     this._socket.emit("closing", reason);
 
-    let self = this;
-    // give a chance to send disconnect message to client
-
     process.nextTick(() => {
-      self._socket.disconnect();
+      this._socket.disconnect();
     });
   }
 }

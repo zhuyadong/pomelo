@@ -32,7 +32,7 @@ export class ProxyComponent implements Component {
   readonly name = "__proxy__";
   private opts: any;
   private client: any; //TODO
-  constructor(readonly app: Application, opts?: any) {
+  constructor(readonly app: Application, opts: any) {
     this.opts = opts;
     this.client = genRpcClient(this.app, opts);
     this.app.event.on(events.ADD_SERVERS, this.addServers.bind(this));
@@ -103,7 +103,7 @@ export class ProxyComponent implements Component {
   }
 }
 
-function genRpcClient(app: Application, opts?: any) {
+function genRpcClient(app: Application, opts: any) {
   opts.context = app;
   opts.routeContext = app;
   if (!!opts.rpcClient) {
