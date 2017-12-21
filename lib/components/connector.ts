@@ -9,16 +9,16 @@ import {
   Blacklist
 } from "../application";
 import { Session } from "../common/service/sessionService";
-const logger = require("pomelo-logger").getLogger("pomelo", __filename);
 import taskManager = require("../common/manager/taskManager");
 import { ServerComponent } from "./server";
 import { SessionComponent } from "./session";
-import { ISocket } from "../pomelo";
+import { ISocket, events } from "../pomelo";
 import { isObject } from "../util/utils";
 import pomelo from "../pomelo";
-let rsa = require("node-bignumber");
-let events = require("../util/events");
-let utils = require("../util/utils");
+import utils = require("../util/utils");
+
+const rsa = require("node-bignumber");
+const logger = require("pomelo-logger").getLogger("pomelo", __filename);
 
 export default (app: Application, opts?: { connector?: Connector }) => {
   return new ConnectorComponent(app, opts);
@@ -84,7 +84,7 @@ export class ConnectorComponent implements Component {
     if (!this.server) {
       process.nextTick(() => {
         utils.invokeCallback(
-          cb,
+          cb!,
           new Error(
             "fail to start connector component for no server component loaded"
           )
@@ -96,7 +96,7 @@ export class ConnectorComponent implements Component {
     if (!this.session) {
       process.nextTick(() => {
         utils.invokeCallback(
-          cb,
+          cb!,
           new Error(
             "fail to start connector component for no session component loaded"
           )
