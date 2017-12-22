@@ -6,11 +6,11 @@ import { Session } from "../../common/service/sessionService";
 const DEFAULT_TIMEOUT = 3000;
 const DEFAULT_SIZE = 500;
 
-export default function(timeout?: number, maxSize?: number) {
+export = (timeout?: number, maxSize?: number)=> {
   return new TimeoutFilter(timeout || DEFAULT_TIMEOUT, maxSize || DEFAULT_SIZE);
 }
 
-export class TimeoutFilter implements Filter {
+class TimeoutFilter implements Filter {
   private curId: number;
   private timeouts: any;
   constructor(readonly timeout: number, readonly maxSize: number) {

@@ -5,30 +5,38 @@ import path = require("path");
 import Application, { Filter } from "./application";
 import events from "./util/events";
 import { Socket } from "net";
-import backendSessionCtor, {
-  BackendSessionService
-} from "./components/backendSession";
-import channelCtor, {
-  ChannelService,
-  ChannelServiceOpts
-} from "./components/channel";
-import connectionCtor, { ConnectionComponent } from "./components/connection";
-import connectorCtor, { ConnectorComponent } from "./components/connector";
-import dictionaryCtor, { DictionaryComponent } from "./components/dictionary";
-import masterCtor, { MasterComponent } from "./components/master";
-import monitorCtor, { MonitorComponent } from "./components/monitor";
-import protobufCtor, { ProtobufComponent } from "./components/protobuf";
-import proxyCtor, { ProxyComponent } from "./components/proxy";
-import pushSchedulerCtor, {
-  PushSchedulerComponent
-} from "./components/pushScheduler";
-import serverCtor, { ServerComponent } from "./components/server";
-import sessionCtor, { SessionComponent } from "./components/session";
-import remoteCtor, { RemoteComponent } from "./components/remote";
-import timeoutCtor, { TimeoutFilter } from "./filters/handler/timeout";
+import backendSessionCtor = require("./components/backendSession");
+import channelCtor = require("./components/channel");
+import connectionCtor = require("./components/connection");
+import connectorCtor = require("./components/connector");
+import dictionaryCtor = require("./components/dictionary");
+import masterCtor = require("./components/master");
+import monitorCtor = require("./components/monitor");
+import protobufCtor = require("./components/protobuf");
+import proxyCtor = require("./components/proxy");
+import pushSchedulerCtor = require("./components/pushScheduler");
+import serverCtor = require("./components/server");
+import sessionCtor = require("./components/session");
+import remoteCtor = require("./components/remote");
+import timeoutCtor = require("./filters/handler/timeout");
 export { events };
 import app from "./application";
-import SioConnector from './connectors/sioconnector';
+import SioConnector from "./connectors/sioconnector";
+import {
+  BackendSessionService,
+  ChannelService,
+  ConnectionComponent,
+  ConnectorComponent,
+  DictionaryComponent,
+  MasterComponent,
+  MonitorComponent,
+  ProtobufComponent,
+  ProxyComponent,
+  PushSchedulerComponent,
+  RemoteComponent,
+  ServerComponent,
+  SessionComponent
+} from "./index";
 const Package = require("../package");
 
 export class Pomelo {
@@ -101,7 +109,7 @@ export class Pomelo {
   }
 
   get app() {
-      return Application.instance;
+    return Application.instance;
   }
 
   createApp(opts?: any) {
@@ -205,18 +213,19 @@ export interface PomeloRPCFilters {}
 
 export interface PomeloConnectors {
   hybridconnector: HybridConnector;
-  sioconnector:SioConnector;
+  sioconnector: SioConnector;
 }
 
 export interface PomeloPushSchedulers {}
 
 function load(path: string, name: string) {
-  let mod:any;
+  let mod: any;
   if (name) {
-    mod = require(path + name).default;
+    mod = require(path + name);
   } else {
-    mod = require(path).default;
+    mod = require(path);
   }
+  if (mod && mod.default) mod = mod.default;
   return mod;
 }
 

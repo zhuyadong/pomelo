@@ -1,9 +1,6 @@
-import { BackendSessionService } from '../common/service/backendSessionService';
-import pomelo = require('../pomelo');
-import { Application } from '../application';
-export * from '../common/service/backendSessionService';
+import { Application, BackendSessionService } from "../index";
 
-export default (app:Application) => {
+export = (app:Application) => {
     let service = new BackendSessionService(app);
     app.set('backendSessionService', service);
     return service;

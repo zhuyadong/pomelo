@@ -1,7 +1,7 @@
 import { isObject } from "util";
 import { EventEmitter } from "events";
-import { ISocket, Settings } from "../../index";
-import { invokeCallback, size } from "../../util/utils";
+import { Settings, ISocket, utils, Component, Application } from "../../index";
+import { resolveNaptr } from "dns";
 
 const logger = require("pomelo-logger").getLogger("pomelo", __filename);
 
@@ -124,7 +124,7 @@ export class FrontendSession extends Session {
       if (!err) {
         this._uid = uid;
       }
-      invokeCallback(cb!, err);
+      utils.invokeCallback(cb!, err);
     });
   }
 
@@ -133,7 +133,7 @@ export class FrontendSession extends Session {
       if (!err) {
         delete this._uid;
       }
-      invokeCallback(cb!, err);
+      utils.invokeCallback(cb!, err);
     });
   }
 
@@ -321,24 +321,30 @@ export class SessionService {
   import(sid: number, key: any, value: any, cb?: Function) {
     const session = this.sessions[sid];
     if (!session) {
-      invokeCallback(cb!, new Error("session does not exist, sid: " + sid));
+      utils.invokeCallback(
+        cb!,
+        new Error("session does not exist, sid: " + sid)
+      );
       return;
     }
     session.set(key, value);
-    invokeCallback(cb!);
+    utils.invokeCallback(cb!);
   }
 
   importAll(sid: number, settings: Settings, cb?: Function) {
     let session = this.sessions[sid];
     if (!session) {
-      invokeCallback(cb!, new Error("session does not exist, sid: " + sid));
+      utils.invokeCallback(
+        cb!,
+        new Error("session does not exist, sid: " + sid)
+      );
       return;
     }
 
     for (let f in settings) {
       session.set(f, settings[f]);
     }
-    invokeCallback(cb!);
+    utils.invokeCallback(cb!);
   }
 
   kick(uid: string, reason: any, cb?: Function) {
@@ -360,11 +366,11 @@ export class SessionService {
       });
 
       process.nextTick(() => {
-        invokeCallback(cb!);
+        utils.invokeCallback(cb!);
       });
     } else {
       process.nextTick(() => {
-        invokeCallback(cb!);
+        utils.invokeCallback(cb!);
       });
     }
   }
@@ -381,11 +387,11 @@ export class SessionService {
       // notify client
       session.closed(reason);
       process.nextTick(() => {
-        invokeCallback(cb!);
+        utils.invokeCallback(cb!);
       });
     } else {
       process.nextTick(() => {
-        invokeCallback(cb!);
+        utils.invokeCallback(cb!);
       });
     }
   }
@@ -451,10 +457,82 @@ export class SessionService {
   }
 
   getSessionCount() {
-    return size(this.sessions);
+    return utils.size(this.sessions);
   }
 }
 
+export class SessionComponent implements Component {
+  readonly name = "__session__";
+  private service: SessionService;
+  constructor(readonly app: Application, opts?: any) {
+    opts = opts || {};
+    this.service = new SessionService(opts);
+  }
+
+  create(sid: number, frontendId: string, socket: ISocket): Session {
+    return this.service.create(sid, frontendId, socket);
+  }
+
+  bind(sid: number, uid: string, cb: Function) {
+    this.service.bind(sid, uid, cb);
+  }
+
+  unbind(sid: number, uid: string, cb: Function) {
+    this.service.unbind(sid, uid, cb);
+  }
+
+  get(sid: number) {
+    return this.service.get(sid);
+  }
+
+  getByUid(uid: string) {
+    return this.service.getByUid(uid);
+  }
+
+  remove(sid: number) {
+    this.service.remove(sid);
+  }
+
+  import(sid: number, key: any, value: any, cb?: Function) {
+    this.service.import(sid, key, value, cb);
+  }
+
+  importAll(sid: number, settings: Settings, cb?: Function) {
+    this.service.importAll(sid, settings, cb);
+  }
+
+  kick(uid: string, reason: any, cb?: Function) {
+    this.service.kick(uid, resolveNaptr, cb);
+  }
+
+  kickBySessionId(sid: number, reason: any, cb?: Function) {
+    this.service.kickBySessionId(sid, reason, cb);
+  }
+
+  getClientAddressBySessionId(sid: number) {
+    return this.service.getClientAddressBySessionId(sid);
+  }
+
+  sendMessage(sid: number, msg: any) {
+    return this.service.sendMessage(sid, msg);
+  }
+
+  sendMessageByUid(uid: string, msg: any) {
+    return this.service.sendMessageByUid(uid, msg);
+  }
+
+  forEachSession(cb: Function) {
+    this.service.forEachSession(cb);
+  }
+
+  forEachBindedSession(cb: Function) {
+    this.service.forEachBindedSession(cb);
+  }
+
+  getSessionCount() {
+    return this.service.getSessionCount();
+  }
+}
 function clone(src: any, dest: any, includes: string[]) {
   let f;
   for (let i = 0, l = includes.length; i < l; i++) {

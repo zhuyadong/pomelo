@@ -106,3 +106,5 @@ export default class HybridSocket extends EventEmitter {
     this.socket.close();
   }
 }
+
+export {HybridSocket}

@@ -1,15 +1,20 @@
-import { Application, ServerInfo } from "../application";
-import { RESERVED, PLATFORM, COMMAND } from "../util/constants";
-import { isLocal } from "../util/utils";
 import { format } from "util";
 import os = require("os");
-import pomelo from "../pomelo";
 import cp = require("child_process");
+import {
+  RESERVED,
+  Application,
+  ServerInfo,
+  utils,
+  COMMAND,
+  PLATFORM,
+  pomelo
+} from "../index";
 
 const logger = require("pomelo-logger").getLogger("pomelo", __filename);
 
-var env = RESERVED.ENV_DEV;
-var cpus: { [idx: string]: number } = {};
+let env = RESERVED.ENV_DEV;
+let cpus: { [idx: string]: number } = {};
 
 export function runServers(app: Application) {
   const condition = app.startId || app.type;
@@ -37,7 +42,7 @@ export function runServers(app: Application) {
 
 export function run(app: Application, server: ServerInfo, cb?: Function) {
   env = app.get("env");
-  if (isLocal(server.host)) {
+  if (utils.isLocal(server.host)) {
     let options: string[] = [];
     if (!!server.args) {
       if (typeof server.args === "string") {
@@ -75,7 +80,7 @@ export function run(app: Application, server: ServerInfo, cb?: Function) {
 
 export function bindCpu(sid: string, pid: string, host: string) {
   if (os.platform() === PLATFORM.LINUX && cpus[sid] !== undefined) {
-    if (isLocal(host)) {
+    if (utils.isLocal(host)) {
       let options: string[] = [];
       options.push("-pc");
       options.push(cpus[sid].toString());
@@ -92,7 +97,7 @@ export function kill(pids: string[], servers: ServerInfo[]) {
   let cmd;
   for (let i = 0; i < servers.length; i++) {
     let server = servers[i];
-    if (isLocal(server.host)) {
+    if (utils.isLocal(server.host)) {
       let options: string[] = [];
       if (os.platform() === PLATFORM.WIN) {
         cmd = COMMAND.TASKKILL;
@@ -116,9 +121,9 @@ export function kill(pids: string[], servers: ServerInfo[]) {
 }
 
 export function sshrun(cmd: string, host: string, cb?: Function) {
-  var args = [];
+  let args = [];
   args.push(host);
-  var ssh_params = pomelo.app.get(RESERVED.SSH_CONFIG_PARAMS);
+  let ssh_params = pomelo.app.get(RESERVED.SSH_CONFIG_PARAMS);
   if (!!ssh_params && Array.isArray(ssh_params)) {
     args = args.concat(ssh_params);
   }
@@ -145,14 +150,14 @@ function spawnProcess(
   options: string[],
   cb?: Function
 ) {
-  var child = null;
+  let child = null;
 
   if (env === RESERVED.ENV_DEV) {
     child = cp.spawn(command, options);
-    var prefix = command === COMMAND.SSH ? "[" + host + "] " : "";
+    let prefix = command === COMMAND.SSH ? "[" + host + "] " : "";
 
     child.stderr.on("data", chunk => {
-      var msg = chunk.toString();
+      let msg = chunk.toString();
       process.stderr.write(msg);
       if (!!cb) {
         cb(msg);
@@ -160,7 +165,7 @@ function spawnProcess(
     });
 
     child.stdout.on("data", chunk => {
-      var msg = prefix + chunk.toString();
+      let msg = prefix + chunk.toString();
       process.stdout.write(msg);
     });
   } else {

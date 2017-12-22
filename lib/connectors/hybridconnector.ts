@@ -1,14 +1,15 @@
 import net = require("net");
 import tls = require("tls");
 import util = require("util");
-import { Connector, Application } from '../application';
-import { EventEmitter } from "events";
-import { ConnectorComponent } from "../components/connector";
-import { DictionaryComponent } from "../components/dictionary";
-import { ProtobufComponent } from "../components/protobuf";
-import { Session } from "../common/service/sessionService";
 import HybridSocket from "./hybridsocket";
 import Switcher from "./hybrid/switcher";
+import { EventEmitter } from "events";
+import {
+  Connector,
+  DictionaryComponent,
+  ProtobufComponent,
+  Application
+} from "../index";
 
 const Handshake = require("./commands/handshake");
 const Heartbeat = require("./commands/heartbeat");
@@ -53,7 +54,7 @@ export default class HybridConnector extends EventEmitter implements Connector {
   }
 
   start(cb: Function) {
-    let pomelo = require('../pomelo');
+    let pomelo = require("../pomelo");
     let app = pomelo.default.app as Application;
     //let app = require("../pomelo").default.app as Application;
 
@@ -106,4 +107,4 @@ export default class HybridConnector extends EventEmitter implements Connector {
 
     process.nextTick(cb);
   }
-}
+};

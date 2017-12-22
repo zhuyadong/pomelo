@@ -31,10 +31,6 @@ export interface RouteRecord {
   method: string;
 }
 
-export function create(app: Application, opts?: any) {
-  return new Server(app, opts);
-}
-
 export type JobMap = { [idx: string]: any };
 
 export class Server {

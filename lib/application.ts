@@ -1,21 +1,6 @@
-import { ProxyComponent } from "./components/proxy";
-import { MonitorComponent } from "./components/monitor";
-import { MasterComponent } from "./components/master";
-import { ConnectorComponent } from "./components/connector";
-import { PushSchedulerComponent } from "./components/pushScheduler";
-import { ConnectionComponent } from "./components/connection";
-import { BackendSessionService } from "./common/service/backendSessionService";
 import process = require("process");
 import path = require("path");
 import fs = require("fs");
-import {
-  FILEPATH,
-  KEYWORDS,
-  RESERVED,
-  LIFECYCLE,
-  DIR,
-  TIME
-} from "./util/constants";
 import { EventEmitter } from "events";
 import { Session, SessionService } from "./common/service/sessionService";
 import { events } from "./pomelo";
@@ -24,11 +9,26 @@ import { runServers } from "./master/starter";
 import { ChannelService } from "./common/service/channelService";
 import { watch } from "fs";
 import appManager = require("./common/manager/appManager");
-import { ServerComponent } from "./components/server";
-import { SessionComponent } from "./components/session";
-import { DictionaryComponent } from "./components/dictionary";
-import { ProtobufComponent } from "./components/protobuf";
-import { RemoteComponent } from "./components/remote";
+import {
+  BackendSessionService,
+  ConnectionComponent,
+  ConnectorComponent,
+  DictionaryComponent,
+  MasterComponent,
+  MonitorComponent,
+  ProtobufComponent,
+  ProxyComponent,
+  PushSchedulerComponent,
+  RemoteComponent,
+  ServerComponent,
+  SessionComponent,
+  FILEPATH,
+  KEYWORDS,
+  RESERVED,
+  LIFECYCLE,
+  DIR,
+  TIME
+} from "./index";
 const async = require("async");
 const Logger = require("pomelo-logger");
 const logger = require("pomelo-logger").getLogger("pomelo", __filename);
@@ -58,7 +58,7 @@ export interface Module {
 }
 
 export interface ModuleConstructor {
-  (...args:any[]):Module;
+  (...args: any[]): Module;
 }
 
 export interface ModuleInfo {
@@ -179,7 +179,7 @@ export default class Application {
 
   private _components: AppComponents;
   private _stopTimer: any;
-  get components(): Readonly<AppComponents>{
+  get components(): Readonly<AppComponents> {
     return this._components;
   }
 
@@ -625,7 +625,7 @@ import { RESERVED } from './util/constants';
     module?: Module | Function | any,
     opts?: any
   ) {
-    let modules:ModuleInfoMap = this.get(KEYWORDS.MODULE);
+    let modules: ModuleInfoMap = this.get(KEYWORDS.MODULE);
     if (!modules) {
       modules = {};
       this.set(KEYWORDS.MODULE, modules);
@@ -986,7 +986,7 @@ import { RESERVED } from './util/constants';
   }
 
   loadDefaultComponents() {
-    let pomelo = require('./pomelo').default;
+    let pomelo = require("./pomelo").default;
     // load system default components
     if (this.serverType === RESERVED.MASTER) {
       this.load(<any>pomelo.master, this.get("masterConfig"));
@@ -1175,4 +1175,4 @@ function addFilter(app: Application, type: string, filter: Filter | RPCFilter) {
   filters.push(filter);
 }
 
-export {Application};
+export { Application };
