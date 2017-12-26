@@ -86,20 +86,20 @@ export interface RPCInvokeFunc {
 
 export type BeforeFilterFunc = (
   msg: any,
-  session: FrontendSession,
+  session: FrontendSession|BackendSession,
   next: Function
 ) => void;
 export type AfterFilterFunc = (
   err: any,
   msg: any,
-  session: FrontendSession,
+  session: FrontendSession|BackendSession,
   resp: any,
   next: Function
 ) => void;
 
 export interface Filter {
-  before(msg: any, session: FrontendSession, next: Function): void;
-  after(err: any, msg: any, session: FrontendSession, resp: any, next: Function): void;
+  before(msg: any, session: FrontendSession|BackendSession, next: Function): void;
+  after(err: any, msg: any, session: FrontendSession|BackendSession, resp: any, next: Function): void;
 }
 export interface RPCFilter {
   before(serverId: string, msg: any, opts: any, next: Function): void;

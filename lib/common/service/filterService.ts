@@ -1,6 +1,6 @@
 import { Session, FrontendSession } from "./sessionService";
 import { Filter, BeforeFilterFunc, AfterFilterFunc } from "../../application";
-import { BackendSession } from "./backendSessionService";
+import { BackendSession } from './backendSessionService';
 
 const logger = require("pomelo-logger").getLogger("pomelo", __filename);
 
@@ -25,7 +25,7 @@ export class FilterService {
     this._afters.unshift(filter);
   }
 
-  beforeFilter(msg: any, session: FrontendSession, cb: Function) {
+  beforeFilter(msg: any, session: FrontendSession|BackendSession, cb: Function) {
     let index = 0;
     let next = (err?: any, resp?: any, opts?: any) => {
       if (err || index >= this._befores.length) {
@@ -49,7 +49,7 @@ export class FilterService {
     next();
   }
 
-  afterFilter(err: any, msg: any, session: FrontendSession, resp: any, cb: Function) {
+  afterFilter(err: any, msg: any, session: FrontendSession|BackendSession, resp: any, cb: Function) {
     let index = 0;
     let next = (err: any) => {
       //if done

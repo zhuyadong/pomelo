@@ -13,7 +13,7 @@ import {
   Handlers
 } from "../common/service/handlerService";
 import { Application, Component, Cron } from "../application";
-import { events, FrontendSession } from "../index";
+import { events, FrontendSession, BackendSession } from "../index";
 import { RESERVED, FILEPATH, KEYWORDS } from "../util/constants";
 import { Session } from "../common/service/sessionService";
 import { format } from "util";
@@ -72,7 +72,7 @@ export class Server {
   stop() {
     this.state = State.ST_STOPED;
   }
-  globalHandle(msg: any, session: FrontendSession, cb?: Function) {
+  globalHandle(msg: any, session: FrontendSession|BackendSession, cb?: Function) {
     if (this.state !== State.ST_STARTED) {
       utils.invokeCallback(cb!, new Error("server not started"));
       return;
@@ -130,7 +130,7 @@ export class Server {
     beforeFilter(true, self, msg, session, dispatch);
   }
 
-  handle(msg: any, session: FrontendSession, cb: Function) {
+  handle(msg: any, session: FrontendSession|BackendSession, cb: Function) {
     if (this.state !== State.ST_STARTED) {
       cb(new Error("server not started"));
       return;
@@ -237,7 +237,7 @@ function beforeFilter(
   isGlobal: boolean,
   server: Server,
   msg: any,
-  session: FrontendSession,
+  session: FrontendSession|BackendSession,
   cb?: Function
 ) {
   let fm;
@@ -258,7 +258,7 @@ function afterFilter(
   server: Server,
   err: any,
   msg: any,
-  session: FrontendSession,
+  session: FrontendSession|BackendSession,
   resp: any,
   opts: any,
   cb: Function
@@ -287,7 +287,7 @@ function handleError(
   server: Server,
   err: any,
   msg: any,
-  session: FrontendSession,
+  session: FrontendSession|BackendSession,
   resp: any,
   opts: any,
   cb: Function
@@ -317,7 +317,7 @@ function response(
   server: Server,
   err: any,
   msg: any,
-  session: FrontendSession,
+  session: FrontendSession|BackendSession,
   resp: any,
   opts: any,
   cb: Function
@@ -351,7 +351,7 @@ function parseRoute(route: string) {
 function doForward(
   app: Application,
   msg: any,
-  session: FrontendSession,
+  session: FrontendSession|BackendSession,
   routeRecord: RouteRecord,
   cb?: Function
 ) {
@@ -386,7 +386,7 @@ function doForward(
 function doHandle(
   server: Server,
   msg: any,
-  session: FrontendSession,
+  session: FrontendSession|BackendSession,
   routeRecord: RouteRecord,
   cb?: Function
 ) {
