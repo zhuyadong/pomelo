@@ -1,4 +1,4 @@
-import { Server, Application, FrontendSession } from "../../index";
+import { Server, Application, FrontendSession, BackendSession } from "../../index";
 
 export class ServerComponent {
   readonly server: Server;

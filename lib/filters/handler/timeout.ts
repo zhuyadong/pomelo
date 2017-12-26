@@ -1,7 +1,7 @@
 import { Filter } from "../../application";
 const logger = require("pomelo-logger").getLogger("pomelo", __filename);
 import utils = require("../../util/utils");
-import { Session } from "../../common/service/sessionService";
+import { FrontendSession } from "../../index";
 
 const DEFAULT_TIMEOUT = 3000;
 const DEFAULT_SIZE = 500;
@@ -17,7 +17,7 @@ class TimeoutFilter implements Filter {
     this.curId = 0;
     this.timeouts = {};
   }
-  before(msg: any, session: Session, next: Function) {
+  before(msg: any, session: FrontendSession, next: Function) {
     var count = utils.size(this.timeouts);
     if (count > this.maxSize) {
       logger.warn(
@@ -36,7 +36,7 @@ class TimeoutFilter implements Filter {
     next();
   }
 
-  after(err: any, msg: any, session: Session, resp: any, next: Function) {
+  after(err: any, msg: any, session: FrontendSession, resp: any, next: Function) {
     var timeout = this.timeouts[session.__timeout__!];
     if (timeout) {
       clearTimeout(timeout);

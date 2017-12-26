@@ -2,7 +2,7 @@ import {
   Scheduler,
   SchedulerMap,
   Application,
-  DirectPushScheduler,
+  DirectPushSchedulerConstructor,
   SchedulerConstructor
 } from "../../index";
 const logger = require("pomelo-logger").getLogger("pomelo", __filename);
@@ -107,7 +107,7 @@ export class PushSchedulerComponent {
     }
   }
   private getScheduler(app: Application, opts: any): Scheduler | SchedulerMap {
-    let scheduler = opts.scheduler || DirectPushScheduler;
+    let scheduler = opts.scheduler || DirectPushSchedulerConstructor;
     if (typeof scheduler === "function") {
       return scheduler(app, opts);
     }

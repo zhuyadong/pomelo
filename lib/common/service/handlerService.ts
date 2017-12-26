@@ -3,7 +3,7 @@ import utils = require("../../util/utils");
 const Loader = require("pomelo-loader");
 import pathUtil = require("../../util/pathUtil");
 import { Application } from "../../application";
-import { Session } from "./sessionService";
+import { Session, FrontendSession } from "./sessionService";
 const logger = require("pomelo-logger").getLogger("pomelo", __filename);
 const forwardLogger = require("pomelo-logger").getLogger(
 	"forward-log",
@@ -38,7 +38,7 @@ export class HandlerService {
 	handle(
 		routeRecord: RouteRecord,
 		msg: any,
-		session: Session,
+		session: FrontendSession,
 		cb?: Function
 	) {
 		// the request should be processed by current server

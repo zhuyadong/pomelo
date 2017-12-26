@@ -139,6 +139,7 @@ export interface BackendSessionOpts {
 }
 
 export class BackendSession {
+  __timeout__?:number;
   uid: string;
   readonly id: number;
   readonly frontendId: string;

@@ -13,9 +13,9 @@ import {
   Handlers
 } from "../common/service/handlerService";
 import { Application, Component, Cron } from "../application";
-import { events } from "../index";
+import { events, FrontendSession } from "../index";
 import { RESERVED, FILEPATH, KEYWORDS } from "../util/constants";
-import { Session, FrontendSession } from "../common/service/sessionService";
+import { Session } from "../common/service/sessionService";
 import { format } from "util";
 
 enum State {
@@ -237,7 +237,7 @@ function beforeFilter(
   isGlobal: boolean,
   server: Server,
   msg: any,
-  session: Session,
+  session: FrontendSession,
   cb?: Function
 ) {
   let fm;
@@ -258,7 +258,7 @@ function afterFilter(
   server: Server,
   err: any,
   msg: any,
-  session: Session,
+  session: FrontendSession,
   resp: any,
   opts: any,
   cb: Function
@@ -287,7 +287,7 @@ function handleError(
   server: Server,
   err: any,
   msg: any,
-  session: Session,
+  session: FrontendSession,
   resp: any,
   opts: any,
   cb: Function
@@ -317,7 +317,7 @@ function response(
   server: Server,
   err: any,
   msg: any,
-  session: Session,
+  session: FrontendSession,
   resp: any,
   opts: any,
   cb: Function
@@ -377,7 +377,7 @@ function doForward(
     );
   } catch (err) {
     if (!finished) {
-      logger.error("fail to forward message:" + err.stack);
+      logger.error(`[${app.serverId}] fail to forward message:` + err.stack);
       utils.invokeCallback(cb!, err);
     }
   }

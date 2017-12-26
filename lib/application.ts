@@ -27,8 +27,10 @@ import {
   RESERVED,
   LIFECYCLE,
   DIR,
-  TIME
+  TIME,
+  FrontendSession
 } from "./index";
+import { BackendSession } from "../index";
 const async = require("async");
 const Logger = require("pomelo-logger");
 const logger = require("pomelo-logger").getLogger("pomelo", __filename);
@@ -84,20 +86,20 @@ export interface RPCInvokeFunc {
 
 export type BeforeFilterFunc = (
   msg: any,
-  session: Session,
+  session: FrontendSession,
   next: Function
 ) => void;
 export type AfterFilterFunc = (
   err: any,
   msg: any,
-  session: Session,
+  session: FrontendSession,
   resp: any,
   next: Function
 ) => void;
 
 export interface Filter {
-  before(msg: any, session: Session, next: Function): void;
-  after(err: any, msg: any, session: Session, resp: any, next: Function): void;
+  before(msg: any, session: FrontendSession, next: Function): void;
+  after(err: any, msg: any, session: FrontendSession, resp: any, next: Function): void;
 }
 export interface RPCFilter {
   before(serverId: string, msg: any, opts: any, next: Function): void;

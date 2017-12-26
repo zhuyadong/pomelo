@@ -3,6 +3,10 @@ import utils = require("../util/utils");
 import { Session } from "../common/service/sessionService";
 const DEFAULT_FLUSH_INTERVAL = 20;
 
+export default (app: Application, opts?: any) => {
+  return new BufferPushScheduler(app, opts);
+};
+
 export class BufferPushScheduler {
   private flushInterval: number;
   private sessions: { [idx: number]: any };
@@ -13,7 +17,7 @@ export class BufferPushScheduler {
     this.tid = null;
   }
   start(cb?: Function) {
-    this.tid = setInterval(()=>this.flush() , this.flushInterval);
+    this.tid = setInterval(() => this.flush(), this.flushInterval);
     process.nextTick(function() {
       utils.invokeCallback(cb!);
     });
@@ -54,7 +58,7 @@ export class BufferPushScheduler {
     let sessionService = this.app.get("sessionService");
 
     if (opts.binded) {
-      sessionService.forEachBindedSession((session:Session)=>{
+      sessionService.forEachBindedSession((session: Session) => {
         if (
           channelService.broadcastFilter &&
           !channelService.broadcastFilter(session, msg, opts.filterParam)
@@ -65,7 +69,7 @@ export class BufferPushScheduler {
         this.enqueue(session, msg);
       });
     } else {
-      sessionService.forEachSession((session:Session) => {
+      sessionService.forEachSession((session: Session) => {
         if (
           channelService.broadcastFilter &&
           !channelService.broadcastFilter(session, msg, opts.filterParam)
@@ -93,7 +97,7 @@ export class BufferPushScheduler {
     let queue = this.sessions[session.id];
     if (!queue) {
       queue = this.sessions[session.id] = [];
-      session.once("closed", ()=>this.onClose(session));
+      session.once("closed", () => this.onClose(session));
     }
 
     queue.push(msg);

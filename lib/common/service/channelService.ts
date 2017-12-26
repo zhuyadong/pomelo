@@ -1,7 +1,6 @@
 import { constants } from "os";
-import { Component } from "../..";
+import { Component, ChannelRemote } from "../..";
 import { Application } from "../../application";
-import { ChannelRemote } from "../remote/frontend/channelRemote";
 import { invokeCallback, size } from "../../util/utils";
 import { createCountDownLatch } from "../../util/countDownLatch";
 import { Session } from "./sessionService";
