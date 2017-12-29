@@ -16,6 +16,10 @@ sequenceDiagram
     Note over .,State: String id, Node node,Type type, Binding.Kind kind
     State->>Binding: ctor()
     Binding->>Analyzer: registerBinding(this)
+    Binding->>Analyzer1: registerBinding(this)
+    Binding->>Analyzer2: registerBinding(this)
+    Binding->>Analyzer3: registerBinding(this)
+    Analyzer3->>Binding: Test
 ```
 
 ```mermaid
@@ -26,16 +30,13 @@ graph LR
     BIND --> |Type| type
 ```
 
-pomelo.components : ComponentConstructor[]
-app.components : Map<string,Component>
+pomelo.components : ComponentConstructor[] app.components :
+Map<string,Component>
 
-all[monitor]
-master[master]
-!master[proxy, remote?, backendSession, channel, server]
-frontend[connection, connector, session, pushScheduler]
+all[monitor] master[master] !master[proxy, remote?, backendSession, channel,
+server] frontend[connection, connector, session, pushScheduler]
 
-proxy : rpc client
-remote : rpc server
+proxy : rpc client remote : rpc server
 
 # Application & pomelo
 
@@ -52,24 +53,95 @@ graph LR
 ```
 
 * pomelo 只是系统的入口和一些全局数据的保存地点
-  * 通过 pomelo.createApp()得到 Application 的唯一实例
-  * pomelo.components 里面有所有系统级的 Component 的工厂函数，都可以通过 Application.load 函数载入到 Application 中
+  * 通过 pomelo.createApp() 得到 Application 的唯一实例
+  * pomelo.components 里面有所有系统级的 Component 的工厂函数，都可以通过
+    Application.load 函数载入到 Application 中
   * pomelo.filters 里面有所有系统提供的请求过滤器
   * pomelo.rpcFilters 里面有所有系统提供的 rpc 请求过滤器
   * pomelo.connectors 里面有所有系统提供的网络连接器
   * pomelo.pushSchedulers 里面有所有系统提供的计划任务处理器
 
-## 不同类型的 Application
+## pomelo 进程按照功能的分类 ——serverType
 
-根据载入 Component 的不同，Application 可以分为三类：
+![](https://res.infoq.com/articles/design-motivation-and-introduction-of-Pomelo-framework/zh/resources/2.png)
 
-* **Master**
-  负责启动除了 MASTER 类之外的所有 Application
-* **Frontend**
-  Client 能直接连接的 Application
-* **Backend**
-  Client 不能直接与之连接的 Applicationo
-  不同种类的 Application 缺省载入的 Component 逻辑在`pomelo/lib/applications:loadDefaultComponents()`中实现，载入情况如下表：
+* **`app/servers/${serverType}`**：包含一种 serverType 的全部代码，比如上图就
+  有`chat`、`connector`、`gate`这三种 serverType
+* **`app/servers/${serverType}/handler/`**：响应 client 请求的代码
+* **`app/servers/${serverType}/remote/`**：是响应 RPC 请求的代码
+* 除了 master，每个 pomelo 进程<span style="color:red;">是且只能</span>是一种
+  serverType
+* **`app/config/servers.json`** 控制所有 pomelo 进程的启动：
+
+```json
+{
+  "development": { //env=development的时候，启动一个connector，两个chat，一个gate
+    "connector": [
+      { "id": "connector-server-1", "host": "127.0.0.1", "port": 4050, "clientPort": 3050, "frontend": true }
+    ],
+    "chat": [
+      { "id": "chat-server-1", "host": "127.0.0.1", "port": 6050 },
+      { "id": "chat-server-2", "host": "127.0.0.1", "port": 6060 }
+    ],
+    "gate": [
+      { "id": "gate-server-1", "host": "127.0.0.1", "clientPort": 3014, "frontend": true }
+    ]
+  },
+  "production": { //env=production的时候，启动一个gate
+    "gate": [
+      { "id": "gate-server-1", "host": "127.0.0.1", "clientPort": 3014, "frontend": true }
+    ]
+  }
+  //上面的env可以通过命令行参数传递：node app env=development
+}
+```
+
+* serverType 进程和`app/server/${serverType}/handler|remote`的关系：
+
+```mermaid
+graph LR
+  C("fa:fa-gears chat") --> COSVR("fa:fa-gear server")
+  C --> CORMT("fa:fa-gear remote")
+  subgraph 处理server进程之间RPC请求
+    CORMT --> R("fa:fa-file-text chat/remote/chatRemote.js")
+    R --> ADD>"add() fa:fa-arrow-left"]
+    R --> GET>"get() fa:fa-arrow-left"]
+    R --> KICK>"kick() fa:fa-arrow-left"]
+    ADD --- |"app.rpc.chat.chatRemote.add(...)"| COPXY("fa:fa-gear proxy")
+    GET --- |"app.rpc.chat.chatRemote.get(...)"| COPXY
+    KICK --- |"app.rpc.chat.chatRemote.kick(...)"| COPXY
+    COPXY --> CTOR("fa:fa-gears connector")
+  end
+  subgraph 处理客户端请求
+    COSVR --> H("fa:fa-file-text chat/handler/chatHandler.js")
+    H --> SEND>"send() fa:fa-arrow-left"]
+    SEND --- |"request('chat.chatHandler.send', ...)"| CL("fa:fa-user Client")
+  end
+  style C fill:#f9f,stroke:#333,stroke-width:4px;
+  style CTOR fill:#f9f,stroke:#333,stroke-width:4px;
+  style CL fill:#0f0,stroke:#333,stroke-width:4px;
+  style COSVR fill:#bbb,stroke:#333,stroke-width:2px;
+  style CORMT fill:#bbb,stroke:#333,stroke-width:2px;
+  style COPXY fill:#bbb,stroke:#333,stroke-width:2px;
+```
+
+### Client 请求和目结构的映射
+
+![](https://res.infoq.com/articles/design-motivation-and-introduction-of-Pomelo-framework/zh/resources/5.png)
+
+### RPC 请求和目录结构的映射
+
+![](https://res.infoq.com/articles/design-motivation-and-introduction-of-Pomelo-framework/zh/resources/4.png)
+
+## pomelo 进程按照网络角色的分类 ——master,frontend,backend
+
+* **Master** 负责启动除了 master 类之外的所有 pomelo 进程，master 类的由人类启动
+  （node app ...)
+* **Frontend** Client 能直接连接的 pomelo 进程
+* **Backend** Client 不能直接与之连接的 pomelo 进程不同种类的
+
+Application 缺省载入的 Component 逻辑在`pomelo/lib/applications:loadDefaultComponents()`中实现，
+  载入情况如下表：
 
 | Component      | Master | Frontend | Backend |
 | -------------- | ------ | -------- | ------- |
@@ -85,19 +157,18 @@ graph LR
 | server         |        | O        | O       |
 | monitor        | O      | O        | O       |
 
-其中 port 表示如果 servers.json 文件中这个 Application 配置了 port 参数，就载入，否则不载入。
+其中 port 表示如果 servers.json 文件中这个 Application 配置了 port 参数，就载入
+，否则不载入。
 
-**到这里我们会发现，按照上面说的 Application 的种类，一共也没几个，算上 port 参数的有无，也就五种类型，那么是怎么能实现无数种不同的服务进程的呢？**
-
-### Application 的 serverType 类型和`app/config/servers.json`
-
-要回答上面的问题，就需要了解，每个 Application，还有个服务类型，叫 serverType。前面的类型决定  了 Application 会载入什么 Component，而 serverType 决定了 Application 会载入哪些服务逻辑(实际上，这是由 server 这个 Component 的逻辑驱动的)，决定 Application 的 serverType 的地方，就是`app/config/servers.json`。
-
-#### app/config/servers.json 的说明 TODO
+* **三种 Application 的网络拓扑结构如下：**
+  ![](https://res.infoq.com/articles/design-motivation-and-introduction-of-Pomelo-framework/zh/resources/1.png)
 
 ## Component 的简介
 
-Component 是组成 Application 的基本部件，为了更好的代码重用，pomelo 把 Component 之间一些共用的功能提取出来，这些功能模块，在 pomelo 中叫做 module，比如`pomelo/lib/modules/`下的几个系统提供 module。Component 除了实现自己特别的功能之外，也可以载入这些 module 来扩展自己的功能。
+Component 是组成 Application 的基本部件，为了更好的代码重用，pomelo 把 Component
+之间一些共用的功能提取出来，这些功能模块，在 pomelo 中叫做 module，比
+如`pomelo/lib/modules/`下的几个系统提供 module。Component 除了实现自己特别的功能
+之外，也可以载入这些 module 来扩展自己的功能。
 
 ```mermaid
 graph LR
@@ -106,18 +177,27 @@ graph LR
 
 系统提供了如下几个 Component:
 
-* **master**  
-  master 这个 Component 的功能，就是根据配置文件`app/config/servers.json`启动所有的 Applications。
-* **server**
-  server 这个Component的功能，就是负责载入`app/servers/${serverType}/handler/`下的handlers，提供对client请求的响应。
-* **remote**
-  remote这个Component的功能，就是负责载入`app/servers/${serverTYpe}/remote/`下的remote handlers，提供对rpc请求的响应。
-* **connector**
-  connector这个Component的功能，就是为Application提供网络连接，系统提供了几种connector都在`pomelo/lib/connectors/`下，可以通过配置指定使用其中的一个。
-* **connection**
-  connection这个Component的功能，就是记录所有连接了Application的client的信息，方便统计和其它相关需要。
-* **channel**
-  channel这个Component的功能，就是提供Application之间的广播，组播消息的功能。  
-* **proxy**
-  proxy这个Component的功能，是为Application生成可以进行rpc调用的代理对象，比如进行`app.rpc.chat.chatRemote.xxx()`这样的调用，app.rpc这个对象，就是proxy生成的。
-# 启动过程
+* **master**\
+  master 这个 Component 的功能，就是根据配置文件`app/config/servers.json`启动所有
+  的 Applications。
+* **server** server 这个 Component 的功能，就是负责载
+  入`app/servers/${serverType}/handler/`下的 handlers，提供对 client 请求的响应
+  。
+* **remote** remote 这个 Component 的功能，就是负责载
+  入`app/servers/${serverTYpe}/remote/`下的 remote handlers，提供对 rpc 请求的响
+  应。
+* **connector** connector 这个 Component 的功能，就是为 Application 提供网络连接
+  ，系统提供了几种 connector 都在`pomelo/lib/connectors/`下，可以通过配置指定使
+  用其中的一个。
+* **connection** connection 这个 Component 的功能，就是记录  所有连接了
+  Application 的 client 的信息，方便统计和其它相关需要。
+* **channel** channel 这个 Component 的功能，就是提供 Application 之间的广播，组
+  播消息的功能 。
+* **proxy** proxy 这个 Component 的功能，是为 Application 生成可以进行 rpc 调用
+  的代理对象，比如进行`app.rpc.chat.chatRemote.xxx()`这样的调用，这个 Component
+  启动的时候会扫描所有 app.rpc 这个对象，就是 proxy 生成的。
+
+### master组件怎样启动所有serverType进程
+* master组件代码位置
+`lib/components/master.js`是入口，`lib/master/master.js`是主要实现代码
+
