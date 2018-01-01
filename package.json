@@ -49,6 +49,7 @@
     "pomelo": "./bin/pomelo"
   },
   "devDependencies": {
+    "@types/duplexify": "^3.5.0",
     "@types/node": "^8.5.2",
     "@types/socket.io": "^1.4.31",
     "@types/ws": "^3.2.1",

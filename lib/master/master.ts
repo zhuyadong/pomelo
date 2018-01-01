@@ -13,13 +13,14 @@ import {
 const logger = require("pomelo-logger").getLogger("pomelo", __filename);
 const crashLogger = require("pomelo-logger").getLogger("crash-log", __filename);
 const adminLogger = require("pomelo-logger").getLogger("admin-log", __filename);
-const admin = require("pomelo-admin");
+import admin = require("pomelo-admin");
+import { ConsoleService } from "pomelo-admin";
 
 export default class Master {
   readonly masterInfo: ServerInfo;
   private modules: Module[];
   private closeWatcher: boolean;
-  private masterConsole: any; //TODO
+  private masterConsole: ConsoleService;
   private registered: any; //TODO
   constructor(readonly app: Application, opts?: any) {
     this.masterInfo = app.master;

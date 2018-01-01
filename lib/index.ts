@@ -41,4 +41,5 @@ export {
   BufferPushSchedulerConstructor,
   BufferPushScheduler
 };
+export {Module} from "pomelo-admin";
 export default pomelo;

@@ -28,7 +28,8 @@ import {
   LIFECYCLE,
   DIR,
   TIME,
-  FrontendSession
+  FrontendSession,
+  Module
 } from "./index";
 import { BackendSession } from "../index";
 const async = require("async");
@@ -52,11 +53,6 @@ export interface ServerInfo {
   clientPort?: number;
   cpu?: number;
   [idx: string]: any;
-}
-
-export interface Module {
-  moduleId: string;
-  start(cb?: Function): void;
 }
 
 export interface ModuleConstructor {
@@ -623,7 +619,7 @@ import { RESERVED } from './util/constants';
   }
 
   registerAdmin(
-    moduleId: string,
+    moduleId: any,
     module?: Module | Function | any,
     opts?: any
   ) {
@@ -645,7 +641,7 @@ import { RESERVED } from './util/constants';
       return;
     }
 
-    modules[moduleId as string] = {
+    modules[moduleId] = {
       moduleId: moduleId,
       module: module,
       opts: opts

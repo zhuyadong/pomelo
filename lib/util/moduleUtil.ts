@@ -1,18 +1,19 @@
 import os = require("os");
-let admin = require("pomelo-admin");
+import admin = require("pomelo-admin");
 import utils = require("./utils");
 import pathUtil = require("./pathUtil");
 import starter = require("../master/starter");
-import { Component, Module, ModuleInfoMap } from '../application';
+import { Component, ModuleInfoMap } from '../application';
 import { KEYWORDS, PLATFORM } from "./constants";
-import { Application } from "../index";
+import { Application, Module } from "../index";
 import { ModuleInfo } from "../../index";
+import { ConsoleService } from "pomelo-admin";
 let logger = require("pomelo-logger").getLogger("pomelo", __filename);
 
 //TODO:self & consoleService types
-export function loadModules(self: any, consoleService: any) {
+export function loadModules(self: any, consoleService: ConsoleService) {
   // load app register modules
-  let _modules : ModuleInfoMap = self.app!.get(KEYWORDS.MODULE);
+  let _modules : ModuleInfoMap = self.app.get(KEYWORDS.MODULE);
 
   if (!_modules) {
     return;

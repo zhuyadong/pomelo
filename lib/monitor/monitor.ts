@@ -2,8 +2,9 @@ const logger = require("pomelo-logger").getLogger("pomelo", __filename);
 const admin = require("pomelo-admin");
 import moduleUtil = require("../util/moduleUtil");
 import utils = require("../util/utils");
-import { Application, ServerInfo, Module } from "../application";
+import { Application, ServerInfo } from "../application";
 import { RESERVED } from "../util/constants";
+import { Module } from "../index";
 
 export default class Monitor {
 	private serverInfo: ServerInfo;
